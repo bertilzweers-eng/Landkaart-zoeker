@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a73e8">
+<title>Geo-Analist Pro</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{--blue:#1a73e8;--blue2:#1558b0;--danger:#d93025;--green:#188038;--orange:#e37400;--purple:#7c3aed;--text:#202124;--muted:#5f6368;--line:#e0e3e7;--panel:#fff;--soft:#f6f8fa}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100dvh;width:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#eef1f4;color:var(--text)}
+button,textarea{font:inherit} button{border:0} button:focus-visible,.layer-btn:focus-visible,textarea:focus-visible{outline:3px solid rgba(26,115,232,.25);outline-offset:1px}
+#map{position:absolute;inset:0;z-index:1}
+.layer-control{position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;z-index:1000;background:#fff;border-radius:10px;display:flex;box-shadow:0 2px 10px rgba(0,0,0,.2);overflow:hidden;border:1px solid rgba(0,0,0,.08)}
+.layer-btn{padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--muted);border-right:1px solid #eee;user-select:none}
+.layer-btn:last-child{border-right:0}.layer-btn.active{background:var(--blue);color:#fff}.layer-btn.nl{color:var(--orange)}.layer-btn.nl.active{background:var(--orange);color:#fff}
+#panel{position:absolute;z-index:1000;background:var(--panel);display:flex;flex-direction:column;gap:9px;box-shadow:0 -3px 20px rgba(0,0,0,.16);transition:padding .15s}
+#dragHandle{display:none}
+@media(max-width:599px){
+  #dragHandle{display:block;width:100%;padding:8px 0 4px;cursor:pointer;background:transparent}
+  #dragHandle:before{content:"";display:block;width:38px;height:4px;border-radius:99px;background:#d9dde2;margin:0 auto}
+  #panel{bottom:0;left:0;right:0;border-radius:16px 16px 0 0;padding:0 13px calc(10px + env(safe-area-inset-bottom));max-height:48dvh;overflow-y:auto}
+  #panel.panel-collapsed{max-height:none;padding-bottom:calc(6px + env(safe-area-inset-bottom));overflow:visible}
+}
+@media(min-width:600px){#panel{top:18px;right:18px;width:370px;border-radius:14px;padding:16px;max-height:calc(100dvh - 36px);overflow-y:auto}#panel.panel-collapsed{max-height:none;overflow:visible;padding-bottom:16px}}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.panel-head-btns{display:flex;gap:6px;flex:none}.brand{font-size:16px;font-weight:800}.subtitle{font-size:11px;color:var(--muted);margin-top:2px}
+#panelBody{display:flex;flex-direction:column;gap:9px}#panelBody.collapsed{display:none}
+#bTogglePanel{transition:transform .15s}#bTogglePanel.collapsed{transform:rotate(-90deg)}
+.icon-btn{width:32px;height:32px;border-radius:8px;background:var(--soft);color:var(--muted);cursor:pointer}
+@media(max-width:599px){.icon-btn{width:40px;height:40px}}
+.search-wrap{position:relative}.search-label{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:5px;display:block}
+.search-toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.search-toggle-row .search-label{margin-bottom:0}
+.search-body{display:flex;flex-direction:column;gap:9px;overflow:hidden}.search-body.collapsed{display:none}
+#bToggleSearch{transition:transform .15s}#bToggleSearch.collapsed{transform:rotate(-90deg)}
+.search-mode{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.mode-toggle{display:flex;background:var(--soft);border-radius:8px;padding:2px}.mode-btn{border:0;background:transparent;padding:5px 9px;border-radius:6px;font-size:10px;font-weight:800;color:var(--muted);cursor:pointer}.mode-btn.active{background:#fff;color:var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.field{margin-bottom:7px}.search-input{width:100%;height:40px;border:1px solid #cfd4da;border-radius:9px;padding:8px 10px;font-size:14px;background:#fff;color:var(--text)}.search-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,115,232,.12)}
+@media(max-width:599px){.search-input{font-size:16px;height:44px}}
+.pro-fields{background:#f8f9fa;border:1px solid var(--line);border-radius:9px;padding:8px;margin:5px 0}.history-row{display:flex;gap:6px}.history-btn{flex:1;background:#fff;border:1px solid var(--line);color:#4b4f52;border-radius:8px;padding:7px;font-size:10.5px;font-weight:700;cursor:pointer}.history-panel{margin-top:6px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;max-height:160px;overflow-y:auto}.history-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 9px;border-bottom:1px solid #eee;cursor:pointer}.history-item:last-child{border-bottom:0}.history-item:hover{background:#f5f8fc}.history-main{min-width:0}.history-main b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.history-main span{font-size:9.5px;color:var(--muted)}.history-use{font-size:10px;color:var(--blue);font-weight:800;white-space:nowrap}
+.hint{font-size:10.5px;color:#80868b;margin-top:4px;line-height:1.35}.hint code{background:#eef1f4;padding:1px 4px;border-radius:4px;font-family:ui-monospace,monospace}.search-input::placeholder{color:#8a9096} [hidden]{display:none!important}
+.btn-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+button.action{min-height:40px;padding:9px 6px;border-radius:9px;font-weight:700;cursor:pointer;font-size:12px;transition:.12s transform,.12s filter}
+button.action:active{transform:scale(.98)}button.action:disabled{opacity:.55;cursor:wait}
+.btn-main{background:var(--blue);color:#fff;grid-column:span 4;font-size:14px!important}.btn-main:hover{background:var(--blue2)}
+.btn-green{background:#e6f4ea;color:var(--green)}.btn-sub{background:#f1f3f4;color:#3c4043}.btn-meten{background:#e6f4ea;color:var(--green)}.btn-meten.aan{background:var(--danger);color:#fff}.btn-route{background:#f4eaff;color:#6331c9}.btn-route.aan{background:var(--purple);color:#fff}
+@media(max-width:599px){button.action{min-height:46px;font-size:11px}.btn-main{font-size:15px!important}}
+.status-row{display:flex;align-items:center;gap:7px;min-height:18px}.status-dot{width:7px;height:7px;border-radius:50%;background:#34a853;flex:none}.status-dot.busy{background:#f9ab00}.status-dot.error{background:var(--danger)}
+#status{font-size:11.5px;color:var(--muted);font-weight:600;line-height:1.3}
+.card{background:#f8f9fa;border:1px solid #e5e7eb;border-radius:9px;padding:9px;max-height:150px;overflow:auto}.card-title{font-size:13px;font-weight:800;margin-bottom:6px}.card table{width:100%;border-collapse:collapse;font-size:11px}.card td{padding:3px 4px;vertical-align:top;border-bottom:1px solid #eee}.card td:first-child{color:#777;white-space:nowrap}.card td:last-child{word-break:break-word}
+.results{display:none;border-top:1px solid var(--line);padding-top:8px}.results-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;position:sticky;top:0;background:#fff;padding-bottom:4px;z-index:2}.results-title{font-size:11px;font-weight:800}.results-list{display:flex;flex-direction:column;gap:4px;max-height:130px;overflow:auto}.result-item{display:flex;align-items:center;gap:7px;padding:7px;border-radius:8px;background:var(--soft);cursor:pointer;font-size:11px}.result-item:hover{background:#e8f0fe}.result-num{width:21px;height:21px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-weight:800;font-size:10px;flex:none}.result-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.result-type{font-size:9.5px;color:#7a7f85}
+.tools{display:flex;gap:6px}.mini{font-size:10px!important;min-height:30px!important;padding:6px 9px!important;background:#fff;border:1px solid var(--line);color:#4b4f52}
+#debug-log{display:none;background:#fff1f0;color:var(--danger);padding:8px;border-radius:7px;font-size:10px;border:1px solid #ffccc7;white-space:pre-wrap;max-height:90px;overflow:auto}
+.leaflet-control-zoom{margin-top:60px!important}
+@media(max-width:599px){.leaflet-control-zoom{margin-top:4px!important;margin-right:5px!important}.layer-control{top:10px;left:10px}.layer-btn{padding:8px 9px}}
+</style>
+</head>
+<body>
+<div class="layer-control" role="group" aria-label="Kaartlaag">
+  <button id="l-std" class="layer-btn active">Kaart</button>
+  <button id="l-sat" class="layer-btn">Satelliet</button>
+  <button id="l-nl" class="layer-btn nl">NL Actueel</button>
+</div>
+<div id="map"></div>
+<section id="panel" aria-label="Geo-analyse">
+  <div id="dragHandle" title="Paneel in-/uitklappen" aria-hidden="true"></div>
+  <div class="panel-head">
+    <div><div class="brand">Geo-Analist Pro</div><div class="subtitle">Zoeken · meten · lokaliseren · route</div></div>
+    <div class="panel-head-btns">
+      <button id="bHelp" class="icon-btn" title="Gebruikshulp" aria-label="Gebruikshulp">?</button>
+      <button id="bTogglePanel" class="icon-btn" type="button" aria-expanded="true" aria-controls="panelBody" title="Paneel inklappen" aria-label="Paneel in-/uitklappen">⌄</button>
+    </div>
+  </div>
+  <div id="panelBody">
+  <div class="search-wrap">
+    <div class="search-toggle-row">
+      <span class="search-label">Zoekvelden</span>
+      <button id="bToggleSearch" class="icon-btn" type="button" aria-expanded="true" aria-controls="searchBody" title="Zoekvelden inklappen">⌄</button>
+    </div>
+    <div id="searchBody" class="search-body">
+      <div class="search-mode"><span class="search-label">Zoekmodus</span><div class="mode-toggle" role="group" aria-label="Zoekmodus"><button id="modeSimple" class="mode-btn active" type="button">Basis</button><button id="modePro" class="mode-btn" type="button">Pro</button></div></div>
+      <div class="field"><label class="search-label" for="locationInput">1 · Zoekgebied</label><input id="locationInput" class="search-input" type="text" placeholder="Plaats, adres of gebied — bijv. Hardenberg" autocomplete="off"></div>
+      <div class="field"><label class="search-label" for="termInput">2 · Zoek naar</label><input id="termInput" class="search-input" type="text" placeholder="Object, naam of categorie — bijv. gemeentehuis" autocomplete="off"></div>
+      <div id="basicHint" class="hint">Voorbeeld: <b>Hardenberg</b> + <b>gemeentehuis</b>. Je hebt geen OSM-kennis nodig.</div>
+      <div id="proFields" class="pro-fields" hidden>
+        <div class="field"><label class="search-label" for="tagField">OSM-tagfilter</label><input id="tagField" class="search-input" type="text" placeholder="amenity=school, shop=supermarket"></div>
+        <div class="field"><label class="search-label" for="typeField">Objecttype <span style="font-weight:500;color:#80868b">(optioneel)</span></label><select id="typeField" class="search-input" style="height:40px"><option value="">Alle relevante types</option><option value="node">Puntobjecten</option><option value="way">Lijn-/vlakobjecten</option><option value="relation">Relaties</option></select></div>
+        <div class="field"><label class="search-label" for="limitField">Maximaal aantal resultaten</label><select id="limitField" class="search-input" style="height:40px"><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option><option value="500">500</option></select></div>
+        <div class="hint"><b>OSM-tagfilter</b> is een exacte filter. Voorbeeld: <code>amenity=school</code>.</div>
+      </div>
+      <div class="history-row"><button id="bHistory" class="history-btn" type="button">🕘 Geschiedenis</button><button id="bExample" class="history-btn" type="button">Voorbeeld</button></div>
+      <div id="historyPanel" class="history-panel" hidden></div>
+      <div class="hint">Basis: twee velden invullen. Pro: voeg een OSM-tag, objecttype of resultaatlimiet toe. Ctrl/⌘ + Enter = zoeken.</div>
+    </div>
+  </div>
+  <div class="btn-grid">
+    <button id="bZoek" class="action btn-main">🔍 Zoeken</button>
+    <button id="bGPS" class="action btn-green">📍 GPS</button>
+    <button id="bMeten" class="action btn-meten">📏 Meten</button>
+    <button id="bRoute" class="action btn-route">🗺️ Route</button>
+    <button id="bWis" class="action btn-sub">🗑️ Wissen</button>
+  </div>
+  <div class="status-row"><span id="statusDot" class="status-dot"></span><div id="status" aria-live="polite">Klaar voor analyse</div></div>
+  <div id="results" class="results"><div class="results-head"><span class="results-title">Zoekresultaten</span><div class="tools"><button id="bFit" class="action mini">↔ Alles tonen</button></div></div><div id="resultsList" class="results-list"></div></div>
+  <div id="info-card" class="card" style="display:none"></div>
+  <div id="debug-log"></div>
+  </div>
+</section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const streetL=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:21,attribution:'© OpenStreetMap © CARTO'});
+const satL=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,attribution:'© Esri'});
+const nlL=L.tileLayer('https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_ortho25/EPSG:3857/{z}/{x}/{y}.jpeg',{maxZoom:21,attribution:'© PDOK'});
+const kaart=L.map('map',{zoomControl:false,maxZoom:21}).setView([52.57,6.62],13);
+streetL.addTo(kaart);L.control.zoom({position:'topright'}).addTo(kaart);
+const dataLaag=L.featureGroup().addTo(kaart), routeLaag=L.featureGroup().addTo(kaart), meetLaag=L.featureGroup().addTo(kaart);
+let gpsMark=null,gpsAccuracy=null,metenAan=false,mPunten=[],mLijn=null,routeAan=false,routeRij=[],lastBounds=null;
+
+function status(txt,type='ok'){$('status').textContent=txt;$('statusDot').className='status-dot '+(type==='busy'?'busy':type==='error'?'error':'')}
+function setLayer(type){[streetL,satL,nlL].forEach(l=>kaart.removeLayer(l));document.querySelectorAll('.layer-btn').forEach(b=>b.classList.remove('active'));let l=streetL,id='l-std';if(type==='sat'){l=satL;id='l-sat'}else if(type==='nl'){l=nlL;id='l-nl'}l.addTo(kaart);$(id).classList.add('active')}
+$('l-std').onclick=()=>setLayer('std');$('l-sat').onclick=()=>setLayer('sat');$('l-nl').onclick=()=>setLayer('nl');
+
+function distanceText(d){return d>=1000?(d/1000).toFixed(2)+' km':Math.round(d)+' m'}
+function totalDistance(points){let d=0;for(let i=1;i<points.length;i++)d+=points[i-1].distanceTo(points[i]);return d}
+function resetMeasure(){mPunten=[];meetLaag.clearLayers();if(mLijn){kaart.removeLayer(mLijn);mLijn=null}}
+function stopMeasure(){metenAan=false;$('bMeten').textContent='📏 Meten';$('bMeten').classList.remove('aan');resetMeasure()}
+$('bMeten').onclick=function(){if(routeAan)stopRoute();metenAan=!metenAan;resetMeasure();this.textContent=metenAan?'📍 Klik…':'📏 Meten';this.classList.toggle('aan',metenAan);status(metenAan?'Klik op de kaart om een meetpunt toe te voegen.':'Meting gestopt.')};
+
+kaart.on('click',e=>{if(metenAan){mPunten.push(e.latlng);L.circleMarker(e.latlng,{radius:5,color:'#d93025',fillOpacity:.9}).addTo(meetLaag);if(mPunten.length>1){if(mLijn)kaart.removeLayer(mLijn);mLijn=L.polyline(mPunten,{color:'#d93025',weight:3,dashArray:'6,5'}).addTo(kaart);L.popup({closeButton:false,autoClose:false,closeOnClick:false}).setLatLng(e.latlng).setContent('<b>'+distanceText(totalDistance(mPunten))+'</b>').openOn(kaart)}status('Meting: '+distanceText(totalDistance(mPunten)))}else if(routeAan){voegRoutePunt(e.latlng,'Handmatig punt '+(routeRij.length+1))}});
+
+function stopRoute(){routeAan=false;routeRij=[];routeLaag.clearLayers();$('bRoute').textContent='🗺️ Route';$('bRoute').classList.remove('aan')}
+function toggleRoute(){if(routeAan){stopRoute();status('Route gestopt.')}else{stopMeasure();routeAan=true;$('bRoute').textContent='⏹️ Stop';$('bRoute').classList.add('aan');status('Route-modus: klik op de kaart of een zoekresultaat.')} }
+$('bRoute').onclick=toggleRoute;
+
+function voegRoutePunt(ll,naam){const nr=routeRij.length+1;routeRij.push({ll,naam});const icon=L.divIcon({html:'<div style="background:#7c3aed;color:#fff;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.3)">'+nr+'</div>',className:'',iconSize:[26,26],iconAnchor:[13,13]});L.marker(ll,{icon}).addTo(routeLaag).bindPopup(nr+'. '+esc(naam));if(nr>1){const prev=routeRij[nr-2].ll;L.polyline([prev,ll],{color:'#7c3aed',weight:3,dashArray:'7,5'}).addTo(routeLaag)}status(nr+' routepunten — totaal: '+distanceText(totalDistance(routeRij.map(x=>x.ll))))}
+
+async function ipLocatieFallback(btn){
+  status('Geen echte GPS mogelijk vanaf een lokaal bestand (file://) — Chrome, Edge en Samsung Internet blokkeren dat altijd. Ruwe locatie via IP-adres wordt opgehaald…','busy');
+  try{
+    const ctrl=new AbortController(),t=setTimeout(()=>ctrl.abort(),8000);
+    const res=await fetch('https://ipwho.is/',{signal:ctrl.signal});
+    clearTimeout(t);
+    const j=await res.json();
+    if(!j.success||j.latitude==null||j.longitude==null)throw new Error(j.message||'Geen locatiegegevens ontvangen.');
+    const ll=[j.latitude,j.longitude];kaart.setView(ll,11);
+    if(gpsMark)kaart.removeLayer(gpsMark);if(gpsAccuracy)kaart.removeLayer(gpsAccuracy);
+    gpsMark=L.circleMarker(ll,{radius:10,color:'#e37400',fillColor:'#f9ab00',fillOpacity:.95,weight:3}).addTo(kaart).bindPopup('📍 Geschatte locatie (IP-adres)<br>'+esc(j.city||'')+(j.city&&j.region?', ':'')+esc(j.region||'')+'<br><span style="font-size:10.5px;color:#80868b">Geen echte GPS — alleen stadsniveau</span>').openPopup();
+    gpsAccuracy=L.circle(ll,{radius:15000,color:'#f9ab00',fillOpacity:.05,weight:1,dashArray:'4,4'}).addTo(kaart);
+    status('Geschatte locatie via IP: '+(j.city||j.region||'onbekende plaats')+'. Voor echte GPS: open dit bestand via https of localhost (bijv. met een lokale webserver), niet als lokaal bestand.');
+  }catch(err){
+    status('GPS werkt niet vanaf een lokaal bestand (file://), en de IP-locatie-fallback is mislukt. Open het bestand via een lokale webserver of zet het online (https) — dan werkt GPS wel.','error');
+    $('debug-log').style.display='block';$('debug-log').textContent=err.message||String(err);
+  }finally{btn.disabled=false}
+}
+
+$('bGPS').onclick=function(){
+  if(!navigator.geolocation){status('GPS is niet beschikbaar in deze browser.','error');return}
+  if(!window.isSecureContext){
+    this.disabled=true;
+    ipLocatieFallback(this);
+    return;
+  }
+  status('GPS-locatie bepalen…','busy');this.disabled=true;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const ll=[pos.coords.latitude,pos.coords.longitude];kaart.setView(ll,17);
+    if(gpsMark)kaart.removeLayer(gpsMark);if(gpsAccuracy)kaart.removeLayer(gpsAccuracy);
+    gpsMark=L.circleMarker(ll,{radius:10,color:'#188038',fillColor:'#34a853',fillOpacity:.95,weight:3}).addTo(kaart).bindPopup('📍 Jouw locatie<br>±'+Math.round(pos.coords.accuracy)+' m').openPopup();
+    gpsAccuracy=L.circle(ll,{radius:pos.coords.accuracy,color:'#34a853',fillOpacity:.06,weight:1,dashArray:'4,4'}).addTo(kaart);
+    status('GPS gevonden (±'+Math.round(pos.coords.accuracy)+' m).');this.disabled=false
+  },err=>{
+    const msgs={1:'GPS-toestemming geweigerd. Controleer het locatie-icoon in de adresbalk en de locatie-instellingen van je systeem.',2:'Positie kon niet worden bepaald. Controleer of locatievoorzieningen op dit apparaat aanstaan.',3:'GPS-aanvraag duurde te lang. Probeer het opnieuw, bij voorkeur buiten of bij een raam.'};
+    status(msgs[err.code]||'GPS kon niet worden bepaald.','error');this.disabled=false
+  },{timeout:15000,enableHighAccuracy:true,maximumAge:10000})
+};
+
+function clearAll(){dataLaag.clearLayers();routeLaag.clearLayers();meetLaag.clearLayers();if(mLijn){kaart.removeLayer(mLijn);mLijn=null}if(gpsMark){kaart.removeLayer(gpsMark);gpsMark=null}if(gpsAccuracy){kaart.removeLayer(gpsAccuracy);gpsAccuracy=null}stopMeasure();stopRoute();$('info-card').style.display='none';$('debug-log').style.display='none';$('results').style.display='none';$('resultsList').innerHTML='';lastBounds=null;status('Kaart en resultaten gewist.')}
+$('bWis').onclick=clearAll;
+
+function showInfo(el,naam){const info=$('info-card');let h='<div class="card-title">'+esc(naam)+'</div><table>';if(el.tags)Object.keys(el.tags).sort().forEach(k=>h+='<tr><td>'+esc(k)+'</td><td>'+esc(el.tags[k])+'</td></tr>');info.innerHTML=h+'</table>';info.style.display='block'}
+$('bFit').onclick=()=>{if(lastBounds&&lastBounds.isValid())kaart.fitBounds(lastBounds,{padding:[30,30]})};
+
+async function fetchJSON(url,options,timeout=90000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{...options,signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(t)}}
+function regexTerm(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+async function overpass(q){const servers=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];let last;for(const s of servers){try{return await fetchJSON(s,{method:'POST',body:q},95000)}catch(e){last=e}}throw last||new Error('Geen Overpass-server beschikbaar.')}
+
+const HISTORY_KEY='geoAnalistSearchHistoryV2';
+  let searchMode='simple', currentSearchCenter=null;
+
+  function setMode(mode){
+    searchMode=mode;
+    $('modeSimple').classList.toggle('active',mode==='simple');
+    $('modePro').classList.toggle('active',mode==='pro');
+    $('proFields').hidden=mode!=='pro';
+    $('basicHint').hidden=mode==='pro';
+    status(mode==='pro'?'Pro-modus: gericht zoeken met OSM-filters.':'Basis-modus: eenvoudig zoeken zonder OSM-kennis.');
+  }
+  $('modeSimple').onclick=()=>setMode('simple');
+  $('modePro').onclick=()=>setMode('pro');
+
+  function setSearchCollapsed(collapsed){
+    $('searchBody').classList.toggle('collapsed',collapsed);
+    $('bToggleSearch').classList.toggle('collapsed',collapsed);
+    $('bToggleSearch').setAttribute('aria-expanded',String(!collapsed));
+    $('bToggleSearch').title=collapsed?'Zoekvelden uitklappen':'Zoekvelden inklappen';
+  }
+  $('bToggleSearch').onclick=()=>setSearchCollapsed(!$('searchBody').classList.contains('collapsed'));
+
+  const PANEL_COLLAPSED_KEY='geoAnalistPanelCollapsed';
+  function setPanelCollapsed(collapsed){
+    $('panelBody').classList.toggle('collapsed',collapsed);
+    $('panel').classList.toggle('panel-collapsed',collapsed);
+    $('bTogglePanel').classList.toggle('collapsed',collapsed);
+    $('bTogglePanel').setAttribute('aria-expanded',String(!collapsed));
+    $('bTogglePanel').title=collapsed?'Paneel uitklappen':'Paneel inklappen';
+    try{localStorage.setItem(PANEL_COLLAPSED_KEY,collapsed?'1':'0')}catch(e){}
+  }
+  $('bTogglePanel').onclick=()=>setPanelCollapsed(!$('panelBody').classList.contains('collapsed'));
+  $('dragHandle').onclick=()=>setPanelCollapsed(!$('panelBody').classList.contains('collapsed'));
+  try{if(localStorage.getItem(PANEL_COLLAPSED_KEY)==='1')setPanelCollapsed(true)}catch(e){}
+
+  function loadHistory(){
+    try{return JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch(e){return []}
+  }
+  function saveHistory(item){
+    let h=loadHistory().filter(x=>!(x.location===item.location&&x.term===item.term&&x.tag===item.tag&&x.type===item.type));
+    h.unshift({...item,at:new Date().toLocaleString('nl-NL',{dateStyle:'short',timeStyle:'short'})});
+    try{localStorage.setItem(HISTORY_KEY,JSON.stringify(h.slice(0,30)))}catch(e){}
+  }
+  function renderHistory(){
+    const panel=$('historyPanel'),h=loadHistory();
+    if(!h.length){
+      panel.innerHTML='<div class="history-item"><div class="history-main"><b>Nog geen zoekopdrachten</b><span>Geschiedenis wordt alleen op dit apparaat bewaard.</span></div></div>';
+    }else{
+      panel.innerHTML=h.map((x,i)=>'<div class="history-item" data-i="'+i+'"><div class="history-main"><b>'+esc(x.location)+' · '+esc(x.term||x.tag)+'</b><span>'+esc(x.at)+(x.tag?' · '+esc(x.tag):'')+(x.type?' · '+esc(x.type):'')+'</span></div><span class="history-use">Gebruiken</span></div>').join('');
+      panel.querySelectorAll('.history-item[data-i]').forEach(el=>el.onclick=()=>{
+        const x=h[+el.dataset.i];
+        $('locationInput').value=x.location;$('termInput').value=x.term||'';$('tagField').value=x.tag||'';
+        $('typeField').value=x.type||'';$('limitField').value=x.limit||'100';
+        setMode(x.tag||x.type||String(x.limit||'100')!=='100'?'pro':'simple');panel.hidden=true;
+      });
+    }
+    panel.hidden=!panel.hidden;
+  }
+  $('bHistory').onclick=renderHistory;
+  $('bExample').onclick=()=>{
+    $('locationInput').value='Hardenberg';$('termInput').value='gemeentehuis';
+    $('tagField').value='';$('typeField').value='';$('limitField').value='100';
+    setMode('simple');status('Voorbeeld ingevuld. Klik op Zoeken.');
+  };
+
+  function parseTag(tag){
+    if(!tag)return null;
+    const m=tag.match(/^\s*([A-Za-z0-9_:\-]+)\s*=\s*(.+?)\s*$/);
+    return m?{key:m[1],value:m[2]}:null;
+  }
+  function buildSearchQuery(term,tag,bb,type,limit){
+    const clauses=[],parsed=parseTag(tag),base=type||'nwr';
+    if(parsed){
+      clauses.push(base+'["'+regexTerm(parsed.key)+'"="'+regexTerm(parsed.value)+'"]('+bb+');');
+    }else{
+      const t=regexTerm(term);
+      ['name','official_name','alt_name','amenity','shop','tourism','leisure','building','historic','man_made']
+        .forEach(k=>clauses.push(base+'["'+k+'"~"'+t+'",i]('+bb+');'));
+    }
+    return '[out:json][timeout:90];('+clauses.join('')+');out center tags;';
+  }
+
+  function objectType(el){
+    if(el.tags?.amenity)return 'amenity: '+el.tags.amenity;
+    if(el.tags?.shop)return 'shop: '+el.tags.shop;
+    if(el.tags?.tourism)return 'tourism: '+el.tags.tourism;
+    if(el.tags?.leisure)return 'leisure: '+el.tags.leisure;
+    if(el.tags?.building)return 'building: '+el.tags.building;
+    if(el.tags?.historic)return 'historic: '+el.tags.historic;
+    if(el.tags?.man_made)return 'man_made: '+el.tags.man_made;
+    return el.type||'OSM-object';
+  }
+  function renderResults(items){
+    const box=$('results'),list=$('resultsList');list.innerHTML='';
+    const sorted=[...items].sort((a,b)=>{
+      const da=currentSearchCenter?a.ll.distanceTo(currentSearchCenter):Infinity;
+      const db=currentSearchCenter?b.ll.distanceTo(currentSearchCenter):Infinity;
+      return da-db;
+    });
+    sorted.forEach((item,i)=>{
+      const row=document.createElement('div');row.className='result-item';
+      const dist=currentSearchCenter?distanceText(item.ll.distanceTo(currentSearchCenter)):'';
+      row.innerHTML='<span class="result-num">'+(i+1)+'</span><div style="min-width:0"><div class="result-name">'+esc(item.name)+'</div><div class="result-type">'+esc(item.type)+(dist?' · '+esc(dist):'')+'</div></div>';
+      row.onclick=()=>{
+        kaart.setView(item.ll,Math.max(kaart.getZoom(),16));item.marker.openPopup();
+        if(routeAan)voegRoutePunt(item.ll,item.name);else showInfo(item.el,item.name);
+      };
+      list.appendChild(row);
+    });
+    box.style.display=items.length?'block':'none';
+    $('results').querySelector('.results-title').textContent='Zoekresultaten · '+items.length;
+  }
+  async function geocodeLocation(query){
+    const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=nl&q='+encodeURIComponent(query);
+    const geo=await fetchJSON(url,{},15000);
+    if(!geo.length)throw new Error('Zoekgebied "'+query+'" is niet gevonden. Probeer een plaatsnaam, adres of postcode.');
+    return geo[0];
+  }
+
+  $('bZoek').onclick=async function(){
+    const location=$('locationInput').value.trim(),term=$('termInput').value.trim(),tag=$('tagField').value.trim();
+    const type=$('typeField').value,limit=$('limitField').value,parsed=parseTag(tag);
+    if(!location){status('Vul eerst het zoekgebied in, bijvoorbeeld "Hardenberg".','error');$('locationInput').focus();return}
+    if(!term&&!parsed){status('Vul in waar je naar zoekt, bijvoorbeeld "gemeentehuis", of gebruik een OSM-tag.','error');$('termInput').focus();return}
+    if(tag&&!parsed){status('Ongeldige OSM-tag. Gebruik bijvoorbeeld amenity=school.','error');$('tagField').focus();return}
+    saveHistory({location,term,tag,type,limit});
+    $('bZoek').disabled=true;$('info-card').style.display='none';$('debug-log').style.display='none';$('results').style.display='none';dataLaag.clearLayers();currentSearchCenter=null;
+    status('Zoekgebied bepalen…','busy');
+    try{
+      const geo=await geocodeLocation(location);
+      const b=geo.boundingbox,s=+b[0],n=+b[1],w=+b[2],e=+b[3];
+      currentSearchCenter=L.latLng((s+n)/2,(w+e)/2);
+      lastBounds=L.latLngBounds([[s,w],[n,e]]);kaart.fitBounds(lastBounds,{padding:[35,35]});
+      status('OpenStreetMap-objecten zoeken…','busy');
+      const data=await overpass(buildSearchQuery(term,tag,s+','+w+','+n+','+e,type,limit));
+      if(!data.elements?.length){status('Geen objecten gevonden. Probeer een bredere zoekterm of een andere locatie.');return}
+      const seen=new Set(),items=[];
+      data.elements.forEach(el=>{
+        const lat=el.lat??el.center?.lat,lon=el.lon??el.center?.lon;if(lat==null||lon==null)return;
+        const key=el.type+'/'+el.id;if(seen.has(key))return;seen.add(key);
+        const name=el.tags?.name||'(naamloos)',ll=L.latLng(lat,lon);
+        const marker=L.circleMarker(ll,{radius:9,color:'#1a73e8',fillColor:'#1a73e8',fillOpacity:.72,weight:2}).addTo(dataLaag);
+        marker.bindPopup('<b>'+esc(name)+'</b><br><span style="font-size:11px">'+esc(objectType(el))+'</span>');
+        marker.on('click',ev=>{L.DomEvent.stopPropagation(ev);if(routeAan)voegRoutePunt(ll,name);else showInfo(el,name)});
+        items.push({el,name,ll,marker,type:objectType(el)});
+      });
+      // Sorteer op afstand tot het zoekgebiedcentrum vóórdat de limiet wordt toegepast,
+      // zodat bij meer treffers dan de limiet altijd de dichtstbijzijnde objecten overblijven.
+      const max=parseInt(limit,10)||100;
+      const sortedAll=[...items].sort((a,b)=>{
+        const da=currentSearchCenter?a.ll.distanceTo(currentSearchCenter):Infinity;
+        const db=currentSearchCenter?b.ll.distanceTo(currentSearchCenter):Infinity;
+        return da-db;
+      });
+      const limited=sortedAll.slice(0,max);
+      renderResults(limited);
+      if(limited.length){
+        const bnd=L.latLngBounds(limited.map(x=>x.ll));lastBounds=bnd;
+        if(limited.length>1)kaart.fitBounds(bnd,{padding:[45,45],maxZoom:17});
+      }
+      status('✓ '+limited.length+' objecten gevonden. Resultaten zijn op afstand gesorteerd.');
+    }catch(err){
+      const msg=err.name==='AbortError'?'De aanvraag duurde te lang. Verklein het zoekgebied of probeer opnieuw.':'Zoeken mislukt.';
+      status(msg,'error');$('debug-log').style.display='block';$('debug-log').textContent=err.message||String(err);
+    }finally{$('bZoek').disabled=false}
+  };
+
+  ['locationInput','termInput','tagField','typeField','limitField'].forEach(id=>$(id).addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('bZoek').click()}
+  }));
+  $('locationInput').value='Hardenberg';$('termInput').value='gemeentehuis';
+  $('bHelp').onclick=()=>alert(
+`GEBRUIK
+
+BASIS
+1. Zoekgebied = plaats, adres of gebied.
+2. Zoek naar = object, naam of categorie.
+3. Klik op Zoeken.
+4. Klik een resultaat voor details.
+
+PRO
+• OSM-tagfilter = exacte OpenStreetMap-filter, bijvoorbeeld amenity=school.
+• Objecttype = node, way of relation.
+• Resultaatlimiet = 50, 100, 250 of 500.
+• Resultaten worden op afstand van het zoekgebiedcentrum gesorteerd.
+
+KAART
+• Kaart / Satelliet / NL Actueel.
+• GPS toont positie en nauwkeurigheid — vereist dat de pagina via https of localhost draait, niet als lokaal bestand. Chrome, Edge en Samsung Internet blokkeren echte GPS altijd bij een lokaal bestand (file://); dit is een browserbeperking, geen fout in de tool. In dat geval wordt automatisch een ruwe locatie op stadsniveau opgehaald via je IP-adres (oranje stip) — voor echte GPS-nauwkeurigheid opent u het bestand via een lokale webserver of zet u het online.
+• Meten berekent afstanden.
+• Route maakt genummerde routepunten.
+• Tik op het pijltje rechtsboven (of de balk bovenaan het paneel op mobiel) om het hele paneel in/uit te klappen voor meer kaartruimte.
+
+GESCHIEDENIS
+Tot 30 zoekopdrachten worden lokaal op dit apparaat bewaard.
+
+LET OP
+Resultaten zijn afhankelijk van OpenStreetMap, Nominatim, Overpass en je internetverbinding.`);
+
+})();
+</script>
+</body>
+</html>
