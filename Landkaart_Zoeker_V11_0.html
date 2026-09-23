@@ -1,0 +1,921 @@
+<!--
+Geo-Analist Pro V11.0 — wijzigingen t.o.v. V10.0 (UI/UX-verbeteringen):
+- Actieknoppen: van 8 gelijkwaardige knoppen naar duidelijke hiërarchie. "Zoeken" blijft de enige primaire actie; GPS/Meten/Route vormen de tweede rij (kaart-tools); Delen, Route-export, Kaart-export en Wissen zitten nu in een "⋯ Meer"-menu. "Alles wissen" vereist een tweede bevestigingsklik (voorkomt per ongeluk alles kwijtraken).
+- Help: de oude scherm-vullende alert() is vervangen door een gestileerd, inklapbaar hulppaneel (accordion per onderwerp), sluitbaar via kruisje, klik buiten het paneel of Esc.
+- Resultaten: lijst- en tabelweergave tonen niet meer allebei tegelijk — een Lijst/Tabel-schakelaar kiest één weergave. Zodra er resultaten zijn, klappen de zoekvelden automatisch in om ruimte te besparen (met de pijl weer uit te klappen); na "Alles wissen" klappen ze weer open.
+- App-gevoel: vaste app-bar bovenaan (logo, naam, versie, lagen- en help-knop) i.p.v. losse widgets die over de kaart zweefden. Het zoekpaneel toont nu een sectielabel i.p.v. een tweede, dubbele merknaam. Zoom-knoppen van de kaart hebben geen uitzonderingsmarge meer nodig nu de kaart consequent onder de app-bar begint.
+-->
+<!--
+Geo-Analist Pro V10.0 — wijzigingen t.o.v. V9.1:
+- Kadastrale grenzen: kleur nu instelbaar via een vast voorkeurspalet (Standaard grijs / Rood / Blauw / Groen / Oranje / Paars), zichtbaar onder de laag-toggle zodra "Kadastrale grenzen" aanstaat. Technisch een kleurtransformatie (CSS filter) op de PDOK-rasterlaag (WMS): deze laag levert geen los te stylen vectordata, dus dit is de enige manier om de officiële laag te herkleuren. Lijndikte wordt door de PDOK-service bepaald en is niet aanpasbaar. Gekozen kleur wordt lokaal onthouden.
+- Huisnummers: zichtbaarheidsdrempel verlaagd van zoom 17+ naar zoom 15+ (wijkniveau), zodat nummers eerder in beeld komen. Debounce verkort (700 ms → 450 ms) en ophaallimiet verhoogd (700 → 1000) zodat er bij het bredere zoekgebied minder nummers ontbreken.
+- Lagenpaneel: badge op het lagen-icoon toont het aantal actieve overlays; de hele overlay-rij is nu klikbaar (niet alleen de schakelaar) voor eenvoudiger bedienen, vooral op mobiel.
+- UI-verfijning: responsieve breedte van het lagenpaneel en knoppenraster op zeer smalle schermen, grotere schakelaars op mobiel, subtiele openingsanimatie van het lagenpaneel, verfijnde stijl hoofdknop.
+-->
+<!--
+Geo-Analist Pro V9.1 — wijzigingen t.o.v. V9.0:
+- Huisnummer-overlay vervangen: de PDOK BAG-WMS-laag ("verblijfsobject") toont alleen puntjes, geen tekst — er bestaat geen stijl in die WMS-service die het huisnummer als label rendert. De overlay haalt nu OpenStreetMap-adresgegevens (addr:housenumber) op via Overpass en toont per adres een echt tekstlabel met het nummer, net als de fietsroutes/OV-haltes-overlays. Laadt pas bij zeer ver inzoomen (per straat) om de kaart snel te houden.
+
+Geo-Analist Pro V9.0 — wijzigingen t.o.v. V8.0 Basis:
+- Deelbare link: zoekopdracht (gebied/term/Pro-filters) wordt in de URL opgeslagen en kan via "Deel" gekopieerd worden; bij openen van zo'n link staat de zoekopdracht klaar.
+- Race-condition-fix: een trage zoekopdracht of overlay-aanvraag (fietsroutes/OV) kan niet meer per ongeluk de resultaten van een latere, snellere aanvraag overschrijven.
+- Esc-toets annuleert Meten/Route of sluit het lagenpaneel.
+- Kopieer-coördinaten-knop in het infokaartje van een geselecteerd object.
+- "Geschiedenis wissen" toegevoegd aan het geschiedenispaneel.
+- Bugfix: de "Voorbeeld"-knop vulde voorheen geen voorbeeld-zoekgebied/-term in; dat gebeurt nu wel.
+- Bugfix: kaartinformatie-export bevatte letterlijke "\n" in plaats van regeleinden; nu een leesbaar tekstbestand.
+- Overlay-timers (fietsroutes/OV) worden nu ook opgeruimd bij "Wissen".
+-->
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a73e8">
+<title>Geo-Analist Pro V11.0</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{--blue:#1a73e8;--blue2:#1558b0;--danger:#d93025;--green:#188038;--orange:#e37400;--purple:#7c3aed;--text:#202124;--muted:#5f6368;--line:#e0e3e7;--panel:#fff;--soft:#f6f8fa;--kad-filter:none;--appbar-h:56px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100dvh;width:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#eef1f4;color:var(--text)}
+button,textarea{font:inherit} button{border:0} button:focus-visible,.layer-btn:focus-visible,textarea:focus-visible{outline:3px solid rgba(26,115,232,.25);outline-offset:1px}
+
+/* V11.0 — vaste app-bar: geeft de tool een applicatie-achtige "chrome" i.p.v. losse widgets over de kaart */
+.appbar{position:fixed;top:0;left:0;right:0;z-index:1100;display:flex;align-items:center;justify-content:space-between;gap:10px;height:calc(var(--appbar-h) + env(safe-area-inset-top));padding:env(safe-area-inset-top) 12px 0;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06),0 1px 8px rgba(0,0,0,.08);box-sizing:border-box}
+.appbar-left{display:flex;align-items:center;gap:10px;min-width:0}
+.app-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--blue),var(--blue2));display:grid;place-items:center;color:#fff;flex:none;box-shadow:0 2px 8px rgba(26,115,232,.4)}
+.appbar-text{display:flex;flex-direction:column;line-height:1.18;min-width:0}
+.appbar-title{font-size:15px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appbar-version{font-size:9.5px;font-weight:800;color:var(--blue);letter-spacing:.02em}
+.appbar-right{display:flex;align-items:center;gap:6px;flex:none}
+.appbar-right .icon-btn{width:38px;height:38px;border-radius:10px}
+@media(max-width:599px){:root{--appbar-h:50px}.appbar{padding-left:10px;padding-right:10px}.app-mark{width:30px;height:30px;border-radius:9px}.appbar-title{font-size:13.5px}.appbar-right .icon-btn{width:36px;height:36px}}
+
+#map{position:absolute;top:calc(var(--appbar-h) + env(safe-area-inset-top));left:0;right:0;bottom:0;z-index:1}
+.layers-widget{position:relative}
+.layers-toggle{position:relative;width:38px;height:38px;border-radius:10px;background:var(--soft);color:var(--blue);display:grid;place-items:center;cursor:pointer;border:1px solid rgba(0,0,0,.06)}
+.layers-toggle.active{background:var(--blue);color:#fff;border-color:transparent}
+.layers-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:var(--danger);color:#fff;font-size:9px;font-weight:800;display:grid;place-items:center;box-shadow:0 0 0 2px #fff;line-height:1}
+.layers-panel{position:absolute;top:calc(100% + 10px);right:0;left:auto;width:min(250px,calc(100vw - 28px));background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.2),0 1px 3px rgba(0,0,0,.1);padding:12px;border:1px solid rgba(0,0,0,.06)}
+.layers-panel[hidden]{display:none}
+@keyframes lpIn{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.layers-panel:not([hidden]){animation:lpIn .16s ease}
+.layers-section+.layers-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.layers-section-title{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px}
+.base-opts{display:flex;flex-direction:column;gap:2px}
+.base-opt{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text)}
+.base-opt:hover{background:var(--soft)}
+.base-opt .dot{width:9px;height:9px;border-radius:50%;border:2px solid #cfd4da;flex:none}
+.base-opt.active .dot{border-color:var(--blue);background:var(--blue)}
+.base-opt.active{color:var(--blue)}
+.overlay-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer}
+.overlay-row:hover{background:var(--soft)}
+.kad-color-row{display:flex;flex-direction:column;gap:6px;padding:8px;margin:2px 0 2px 8px;background:var(--soft);border-radius:8px;border:1px solid var(--line)}
+.kad-color-row[hidden]{display:none}
+.kad-color-label{font-size:10.5px;font-weight:700;color:var(--muted)}
+.kad-swatches{display:flex;gap:8px}
+.kad-swatch{width:22px;height:22px;border-radius:50%;background:var(--sw);border:2px solid #fff;box-shadow:0 0 0 1px #cfd4da;cursor:pointer;flex:none;padding:0}
+.kad-swatch.active{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--sw)}
+.kad-color-note{font-size:9.5px;color:#9aa0a6;line-height:1.35}
+.kadaster-tiles{filter:var(--kad-filter,none)}
+.overlay-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.overlay-label{font-size:12.5px;font-weight:600;color:var(--text)}
+.overlay-note{font-size:9.5px;color:#9aa0a6;line-height:1.3}
+.switch{position:relative;width:34px;height:20px;flex:none;margin-top:1px}
+.switch input{opacity:0;width:0;height:0}
+.switch .track{position:absolute;inset:0;background:#cfd4da;border-radius:99px;cursor:pointer;transition:.15s}
+.switch .thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.switch input:checked+.track{background:var(--blue)}
+.switch input:checked+.track .thumb{transform:translateX(14px)}
+#layersHint{font-size:10.5px;color:var(--muted);margin-top:9px;min-height:12px;line-height:1.35}
+#panel{position:absolute;z-index:1000;background:var(--panel);display:flex;flex-direction:column;gap:9px;box-shadow:0 -3px 20px rgba(0,0,0,.16);transition:padding .15s}
+#dragHandle{display:none}
+@media(max-width:599px){
+  #dragHandle{display:block;width:100%;padding:8px 0 4px;cursor:pointer;background:transparent}
+  #dragHandle:before{content:"";display:block;width:38px;height:4px;border-radius:99px;background:#d9dde2;margin:0 auto}
+  #panel{bottom:0;left:0;right:0;border-radius:16px 16px 0 0;padding:0 13px calc(10px + env(safe-area-inset-bottom));max-height:48dvh;overflow-y:auto}
+  #panel.panel-collapsed{max-height:none;padding-bottom:calc(6px + env(safe-area-inset-bottom));overflow:visible}
+}
+@media(min-width:600px){#panel{top:calc(var(--appbar-h) + env(safe-area-inset-top) + 14px);right:18px;width:370px;border-radius:14px;padding:16px;max-height:calc(100dvh - var(--appbar-h) - env(safe-area-inset-top) - 28px);overflow-y:auto}#panel.panel-collapsed{max-height:none;overflow:visible;padding-bottom:16px}}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.panel-head-btns{display:flex;gap:6px;flex:none}.panel-head-label{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+#panelBody{display:flex;flex-direction:column;gap:9px}#panelBody.collapsed{display:none}
+#bTogglePanel{transition:transform .15s}#bTogglePanel.collapsed{transform:rotate(-90deg)}
+.icon-btn{width:32px;height:32px;border-radius:8px;background:var(--soft);color:var(--muted);cursor:pointer}
+@media(max-width:599px){.icon-btn{width:40px;height:40px}.switch{width:40px;height:24px}.switch .thumb{width:20px;height:20px}.switch input:checked+.track .thumb{transform:translateX(16px)}}
+@media(max-width:359px){.btn-grid{grid-template-columns:repeat(2,1fr)}.btn-main{grid-column:span 2}}
+.search-wrap{position:relative}.search-label{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:5px;display:block}
+.search-toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.search-toggle-row .search-label{margin-bottom:0}
+.search-body{display:flex;flex-direction:column;gap:9px;overflow:hidden}.search-body.collapsed{display:none}
+#bToggleSearch{transition:transform .15s}#bToggleSearch.collapsed{transform:rotate(-90deg)}
+.search-mode{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.mode-toggle{display:flex;background:var(--soft);border-radius:8px;padding:2px}.mode-btn{border:0;background:transparent;padding:5px 9px;border-radius:6px;font-size:10px;font-weight:800;color:var(--muted);cursor:pointer}.mode-btn.active{background:#fff;color:var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.field{margin-bottom:7px}.search-input{width:100%;height:40px;border:1px solid #cfd4da;border-radius:9px;padding:8px 10px;font-size:14px;background:#fff;color:var(--text)}.search-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,115,232,.12)}
+@media(max-width:599px){.search-input{font-size:16px;height:44px}}
+.pro-fields{background:#f8f9fa;border:1px solid var(--line);border-radius:9px;padding:8px;margin:5px 0}.history-row{display:flex;gap:6px}.history-btn{flex:1;background:#fff;border:1px solid var(--line);color:#4b4f52;border-radius:8px;padding:7px;font-size:10.5px;font-weight:700;cursor:pointer}.history-panel{margin-top:6px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff;max-height:160px;overflow-y:auto}.history-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 9px;border-bottom:1px solid #eee;cursor:pointer}.history-item:last-child{border-bottom:0}.history-item:hover{background:#f5f8fc}.history-main{min-width:0}.history-main b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.history-main span{font-size:9.5px;color:var(--muted)}.history-use{font-size:10px;color:var(--blue);font-weight:800;white-space:nowrap}
+.hint{font-size:10.5px;color:#80868b;margin-top:4px;line-height:1.35}.hint code{background:#eef1f4;padding:1px 4px;border-radius:4px;font-family:ui-monospace,monospace}.search-input::placeholder{color:#8a9096} [hidden]{display:none!important}
+.btn-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+button.action{min-height:40px;padding:9px 6px;border-radius:9px;font-weight:700;cursor:pointer;font-size:12px;transition:.12s transform,.12s filter}
+button.action:active{transform:scale(.98)}button.action:disabled{opacity:.55;cursor:wait}
+.btn-main{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;grid-column:span 4;font-size:14px!important}.btn-main:hover{filter:brightness(1.05)}
+.btn-green{background:#e6f4ea;color:var(--green)}.btn-sub{background:#f1f3f4;color:#3c4043}.btn-meten{background:#e6f4ea;color:var(--green)}.btn-meten.aan{background:var(--danger);color:#fff}.btn-route{background:#f4eaff;color:#6331c9}.btn-route.aan{background:var(--purple);color:#fff}
+@media(max-width:599px){button.action{min-height:46px;font-size:11px}.btn-main{font-size:15px!important}}
+.status-row{display:flex;align-items:center;gap:7px;min-height:18px}.status-dot{width:7px;height:7px;border-radius:50%;background:#34a853;flex:none}.status-dot.busy{background:#f9ab00}.status-dot.error{background:var(--danger)}
+#status{font-size:11.5px;color:var(--muted);font-weight:600;line-height:1.3}
+.card{background:#f8f9fa;border:1px solid #e5e7eb;border-radius:9px;padding:9px;max-height:150px;overflow:auto}.card-title{font-size:13px;font-weight:800;margin-bottom:6px}.card table{width:100%;border-collapse:collapse;font-size:11px}.card td{padding:3px 4px;vertical-align:top;border-bottom:1px solid #eee}.card td:first-child{color:#777;white-space:nowrap}.card td:last-child{word-break:break-word}
+.results{display:none;border-top:1px solid var(--line);padding-top:8px}.results-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;position:sticky;top:0;background:#fff;padding-bottom:4px;z-index:2}.results-title{font-size:11px;font-weight:800}.results-list{display:flex;flex-direction:column;gap:4px;max-height:130px;overflow:auto}.result-item{display:flex;align-items:center;gap:7px;padding:7px;border-radius:8px;background:var(--soft);cursor:pointer;font-size:11px}.result-item:hover{background:#e8f0fe}.result-num{width:21px;height:21px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-weight:800;font-size:10px;flex:none}.result-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.result-type{font-size:9.5px;color:#7a7f85}
+.tools{display:flex;gap:6px}.mini{font-size:10px!important;min-height:30px!important;padding:6px 9px!important;background:#fff;border:1px solid var(--line);color:#4b4f52}
+#debug-log{display:none;background:#fff1f0;color:var(--danger);padding:8px;border-radius:7px;font-size:10px;border:1px solid #ffccc7;white-space:pre-wrap;max-height:90px;overflow:auto}
+.leaflet-control-zoom{margin-top:10px!important}
+@media(max-width:599px){.leaflet-control-zoom{margin-right:5px!important}}
+
+/* V8.0/V9.0 uitbreidingen */
+.results-table-wrap{overflow:auto;max-height:260px;border:1px solid var(--line);border-radius:9px;background:#fff}
+.results-table{width:100%;border-collapse:collapse;font-size:10.5px;min-width:560px}
+.results-table th{position:sticky;top:0;background:#f1f4f7;color:#4b5563;text-align:left;font-size:10px;padding:7px;border-bottom:1px solid var(--line);z-index:1}
+.results-table td{padding:7px;border-bottom:1px solid #edf0f2;vertical-align:top}
+.results-table tr:hover{background:#f5f8fc;cursor:pointer}
+.results-table .name{font-weight:800;color:var(--blue)}
+.v8-section{border-top:1px solid var(--line);padding-top:9px}
+.v8-section-title{font-size:11px;font-weight:800;color:var(--muted);margin-bottom:6px}
+.measure-summary{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
+.measure-stat{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px}
+.measure-stat b{display:block;font-size:13px;color:var(--text)}
+.measure-stat span{font-size:10px;color:var(--muted)}
+.export-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+@media(max-width:599px){.results-table-wrap{max-height:230px}.results-table{font-size:11px}.v8-section-title{font-size:12px}}
+
+/* V11.0 — knop-hiërarchie: "Meer"-menu */
+.btn-main-row{margin-bottom:7px}
+.more-wrap{position:relative}
+#bMore.active{background:var(--blue);color:#fff}
+.more-panel{position:absolute;bottom:calc(100% + 8px);right:0;min-width:210px;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.2),0 1px 3px rgba(0,0,0,.1);padding:6px;border:1px solid rgba(0,0,0,.06);z-index:50}
+.more-panel[hidden]{display:none}
+.more-panel:not([hidden]){animation:lpIn .16s ease}
+.more-item{display:block;width:100%;text-align:left;background:transparent;padding:10px 10px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--text);cursor:pointer}
+.more-item:hover{background:var(--soft)}
+.more-item-danger{color:var(--danger)}
+.more-item-armed{background:var(--danger)!important;color:#fff!important}
+
+/* V11.0 — resultaten: lijst/tabel-schakelaar */
+.tools{align-items:center}
+.view-toggle{display:flex;background:var(--soft);border-radius:8px;padding:2px}
+.view-btn{border:0;background:transparent;padding:5px 8px;border-radius:6px;font-size:9.5px;font-weight:800;color:var(--muted);cursor:pointer}
+.view-btn.active{background:#fff;color:var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+
+/* V11.0 — hulppaneel i.p.v. alert() */
+.help-modal{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-end;justify-content:center}
+.help-modal[hidden]{display:none}
+.help-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.help-sheet{position:relative;background:#fff;width:100%;max-width:560px;max-height:85dvh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;box-shadow:0 -4px 30px rgba(0,0,0,.3)}
+.help-modal:not([hidden]) .help-sheet{animation:lpIn .16s ease}
+@media(min-width:600px){.help-modal{align-items:center}.help-sheet{border-radius:16px;max-height:80dvh}}
+.help-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line);flex:none}
+.help-title{font-size:15px;font-weight:800}
+.help-body{padding:4px 16px 20px;overflow-y:auto}
+.help-body details{border-bottom:1px solid var(--line);padding:10px 0}
+.help-body details:last-child{border-bottom:0}
+.help-body summary{cursor:pointer;font-weight:800;font-size:13px;color:var(--text);list-style:none}
+.help-body summary::-webkit-details-marker{display:none}
+.help-body summary:before{content:'▸ ';color:var(--blue)}
+.help-body details[open] summary:before{content:'▾ '}
+.help-body p,.help-body li{font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px}
+.help-body ul{padding-left:18px;margin-top:4px}
+.help-body code{background:#eef1f4;padding:1px 4px;border-radius:4px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<header class="appbar">
+  <div class="appbar-left">
+    <span class="app-mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2c-4.14 0-7.5 3.36-7.5 7.5 0 5.63 6.5 12 7.06 12.53a.63.63 0 0 0 .88 0C13 21.5 19.5 15.13 19.5 9.5 19.5 5.36 16.14 2 12 2Z" fill="currentColor"/><circle cx="12" cy="9.5" r="2.75" fill="#fff"/></svg></span>
+    <div class="appbar-text"><span class="appbar-title">Geo-Analist Pro</span><span class="appbar-version">V11.0</span></div>
+  </div>
+  <div class="appbar-right">
+    <div class="layers-widget">
+      <button id="bLayersToggle" class="layers-toggle" type="button" aria-expanded="false" aria-controls="layersPanel" title="Kaartlagen" aria-label="Kaartlagen">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.5 2.5 7.5 12 12.5l9.5-5L12 2.5Z" fill="currentColor"/><path d="M2.5 12l9.5 5 9.5-5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 16.5 12 21.5l9.5-5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="layersBadge" class="layers-badge" hidden>0</span>
+      </button>
+      <div id="layersPanel" class="layers-panel" role="group" aria-label="Kaartlagen" hidden>
+        <div class="layers-section">
+          <div class="layers-section-title">Basiskaart</div>
+          <div class="base-opts" role="radiogroup" aria-label="Basiskaart">
+            <button class="base-opt active" data-base="std" type="button" role="radio" aria-checked="true"><span class="dot"></span>Kaart</button>
+            <button class="base-opt" data-base="sat" type="button" role="radio" aria-checked="false"><span class="dot"></span>Satelliet</button>
+            <button class="base-opt" data-base="nl" type="button" role="radio" aria-checked="false"><span class="dot"></span>NL Actueel (luchtfoto)</button>
+          </div>
+        </div>
+        <div class="layers-section">
+          <div class="layers-section-title">Overlays</div>
+          <div class="overlay-row"><div class="overlay-text"><span class="overlay-label">Straat-/plaatsnamen</span><span class="overlay-note">Handig op satelliet of luchtfoto</span></div><label class="switch"><input type="checkbox" id="ovLabels"><span class="track"><span class="thumb"></span></span></label></div>
+          <div class="overlay-row"><div class="overlay-text"><span class="overlay-label">Huisnummers</span><span class="overlay-note">Tekstlabels — zichtbaar vanaf zoom 15+</span></div><label class="switch"><input type="checkbox" id="ovHuisnummers"><span class="track"><span class="thumb"></span></span></label></div>
+          <div class="overlay-row"><div class="overlay-text"><span class="overlay-label">Kadastrale grenzen</span><span class="overlay-note">Perceelgrenzen (Kadaster) — kleur instelbaar hieronder</span></div><label class="switch"><input type="checkbox" id="ovKadaster"><span class="track"><span class="thumb"></span></span></label></div>
+          <div id="kadColorRow" class="kad-color-row" hidden>
+            <span class="kad-color-label">Kleur perceelgrenzen</span>
+            <div class="kad-swatches" role="radiogroup" aria-label="Kleur kadastrale grenzen">
+              <button class="kad-swatch active" data-kad="grijs" style="--sw:#6b7280" type="button" role="radio" aria-checked="true" title="Standaard (grijs)"></button>
+              <button class="kad-swatch" data-kad="rood" style="--sw:#d93025" type="button" role="radio" aria-checked="false" title="Rood"></button>
+              <button class="kad-swatch" data-kad="blauw" style="--sw:#1a73e8" type="button" role="radio" aria-checked="false" title="Blauw"></button>
+              <button class="kad-swatch" data-kad="groen" style="--sw:#188038" type="button" role="radio" aria-checked="false" title="Groen"></button>
+              <button class="kad-swatch" data-kad="oranje" style="--sw:#e37400" type="button" role="radio" aria-checked="false" title="Oranje"></button>
+              <button class="kad-swatch" data-kad="paars" style="--sw:#7c3aed" type="button" role="radio" aria-checked="false" title="Paars"></button>
+            </div>
+            <span class="kad-color-note">Kleurtransformatie op de Kadaster-rasterlaag (WMS). Lijndikte wordt door PDOK bepaald.</span>
+          </div>
+          <div class="overlay-row"><div class="overlay-text"><span class="overlay-label">Fietsroutes</span><span class="overlay-note">Vanaf ca. straatniveau inzoomen</span></div><label class="switch"><input type="checkbox" id="ovFiets"><span class="track"><span class="thumb"></span></span></label></div>
+          <div class="overlay-row"><div class="overlay-text"><span class="overlay-label">OV-haltes</span><span class="overlay-note">Bus, tram en trein</span></div><label class="switch"><input type="checkbox" id="ovOV"><span class="track"><span class="thumb"></span></span></label></div>
+          <div id="layersHint"></div>
+        </div>
+      </div>
+    </div>
+    <button id="bHelp" class="icon-btn" title="Gebruikshulp" aria-label="Gebruikshulp">?</button>
+  </div>
+</header>
+<div id="map"></div>
+<section id="panel" aria-label="Geo-analyse">
+  <div id="dragHandle" title="Paneel in-/uitklappen" aria-hidden="true"></div>
+  <div class="panel-head">
+    <span class="panel-head-label">Zoeken &amp; analyseren</span>
+    <div class="panel-head-btns">
+      <button id="bTogglePanel" class="icon-btn" type="button" aria-expanded="true" aria-controls="panelBody" title="Paneel inklappen" aria-label="Paneel in-/uitklappen">⌄</button>
+    </div>
+  </div>
+  <div id="panelBody">
+  <div class="search-wrap">
+    <div class="search-toggle-row">
+      <span class="search-label">Zoekvelden</span>
+      <button id="bToggleSearch" class="icon-btn" type="button" aria-expanded="true" aria-controls="searchBody" title="Zoekvelden inklappen">⌄</button>
+    </div>
+    <div id="searchBody" class="search-body">
+      <div class="search-mode"><span class="search-label">Zoekmodus</span><div class="mode-toggle" role="group" aria-label="Zoekmodus"><button id="modeSimple" class="mode-btn active" type="button">Basis</button><button id="modePro" class="mode-btn" type="button">Pro</button></div></div>
+      <div class="field"><label class="search-label" for="locationInput">1 · Zoekgebied</label><input id="locationInput" class="search-input" type="text" placeholder="Plaats, adres of gebied — bijv. Hardenberg" autocomplete="off"></div>
+      <div class="field"><label class="search-label" for="termInput">2 · Zoek naar</label><input id="termInput" class="search-input" type="text" placeholder="Object, naam of categorie — bijv. gemeentehuis" autocomplete="off"></div>
+      <div id="basicHint" class="hint">Voorbeeld: <b>Hardenberg</b> + <b>gemeentehuis</b>. Je hebt geen OSM-kennis nodig.</div>
+      <div id="proFields" class="pro-fields" hidden>
+        <div class="field"><label class="search-label" for="tagField">OSM-tagfilter</label><input id="tagField" class="search-input" type="text" placeholder="amenity=school, shop=supermarket"></div>
+        <div class="field"><label class="search-label" for="typeField">Objecttype <span style="font-weight:500;color:#80868b">(optioneel)</span></label><select id="typeField" class="search-input" style="height:40px"><option value="">Alle relevante types</option><option value="node">Puntobjecten</option><option value="way">Lijn-/vlakobjecten</option><option value="relation">Relaties</option></select></div>
+        <div class="field"><label class="search-label" for="limitField">Maximaal aantal resultaten</label><select id="limitField" class="search-input" style="height:40px"><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option><option value="500">500</option></select></div>
+        <div class="hint"><b>OSM-tagfilter</b> is een exacte filter. Voorbeeld: <code>amenity=school</code>.</div>
+      </div>
+      <div class="history-row"><button id="bHistory" class="history-btn" type="button">🕘 Geschiedenis</button><button id="bExample" class="history-btn" type="button">Voorbeeld</button></div>
+      <div id="historyPanel" class="history-panel" hidden></div>
+      <div class="hint">Basis: twee velden invullen. Pro: voeg een OSM-tag, objecttype of resultaatlimiet toe. Ctrl/⌘ + Enter = zoeken.</div>
+    </div>
+  </div>
+  <div class="btn-main-row"><button id="bZoek" class="action btn-main" style="width:100%">🔍 Zoeken</button></div>
+  <div class="btn-grid">
+    <button id="bGPS" class="action btn-green">📍 GPS</button>
+    <button id="bMeten" class="action btn-meten">📏 Meten</button>
+    <button id="bRoute" class="action btn-route">🗺️ Route</button>
+    <div class="more-wrap">
+      <button id="bMore" class="action btn-sub" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="morePanel" style="width:100%">⋯ Meer</button>
+      <div id="morePanel" class="more-panel" role="menu" hidden>
+        <button id="bShare" class="more-item" type="button" role="menuitem">🔗 Link delen</button>
+        <button id="bRouteExport" class="more-item" type="button" role="menuitem">⬇️ Route exporteren (CSV)</button>
+        <button id="bMapExport" class="more-item" type="button" role="menuitem">🖼️ Kaartinfo exporteren</button>
+        <button id="bWis" class="more-item more-item-danger" type="button" role="menuitem">🗑️ Alles wissen</button>
+      </div>
+    </div>
+  </div>
+  <div class="status-row"><span id="statusDot" class="status-dot"></span><div id="status" aria-live="polite">Klaar voor analyse</div></div>
+  <div id="results" class="results">
+  <div class="results-head"><span class="results-title">Zoekresultaten</span><div class="tools"><div class="view-toggle" role="group" aria-label="Weergave resultaten"><button id="bViewList" class="view-btn active" type="button" aria-pressed="true">Lijst</button><button id="bViewTable" class="view-btn" type="button" aria-pressed="false">Tabel</button></div><button id="bFit" class="action mini">↔ Alles tonen</button></div></div>
+  <div id="resultsListWrap"><div id="resultsList" class="results-list"></div></div>
+  <div id="resultsTableWrap" class="v8-section" style="margin-top:8px" hidden>
+    <div class="v8-section-title">Uitgebreide objecttabel</div>
+    <div class="results-table-wrap"><table class="results-table"><thead><tr><th>#</th><th>Naam</th><th>Type</th><th>Coördinaten</th><th>Afstand</th><th>OSM-tags</th></tr></thead><tbody id="resultsTableBody"></tbody></table></div>
+  </div>
+</div>
+  <div id="info-card" class="card" style="display:none"></div>
+  <div id="measure-card" class="card" style="display:none">
+    <div class="card-title">Meting</div>
+    <div id="measure-summary" class="measure-summary"></div>
+    <div class="hint">Klik op de kaart om punten toe te voegen. Bij drie of meer punten wordt ook de oppervlakte berekend.</div>
+  </div>
+  <div id="debug-log"></div>
+  </div>
+</section>
+
+<div id="helpModal" class="help-modal" hidden>
+  <div id="helpBackdrop" class="help-backdrop"></div>
+  <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-head">
+      <span id="helpTitle" class="help-title">Gebruikshulp — Geo-Analist Pro</span>
+      <button id="bHelpClose" class="icon-btn" type="button" aria-label="Sluiten">✕</button>
+    </div>
+    <div class="help-body">
+      <details open>
+        <summary>Basisgebruik</summary>
+        <ul>
+          <li>1 · Zoekgebied = plaats, adres of gebied.</li>
+          <li>2 · Zoek naar = object, naam of categorie.</li>
+          <li>Klik op Zoeken. Klik een resultaat voor details.</li>
+          <li>Ctrl/⌘ + Enter in een veld = zoeken.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>Pro-modus</summary>
+        <ul>
+          <li>OSM-tagfilter = exacte OpenStreetMap-filter, bijvoorbeeld <code>amenity=school</code>.</li>
+          <li>Objecttype = node, way of relation.</li>
+          <li>Resultaatlimiet = 50, 100, 250 of 500.</li>
+          <li>Resultaten worden op afstand van het zoekgebiedcentrum gesorteerd.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>Kaart &amp; lagen</summary>
+        <ul>
+          <li>Kaart / Satelliet / NL Actueel kiest u via het lagen-icoon linksboven.</li>
+          <li>In hetzelfde paneel schakelt u overlays aan/uit: straat-/plaatsnamen, huisnummers, kadastrale grenzen, fietsroutes en OV-haltes. Een badge toont hoeveel overlays actief zijn; klik op de hele rij om te schakelen.</li>
+          <li>Huisnummers tonen het echte nummer als tekstlabel (OpenStreetMap) en laden vanaf zoom 15+.</li>
+          <li>Kadastrale grenzen: zodra deze laag aanstaat verschijnt een kleurenpalet om de perceelgrenzen te herkleuren (kleurtransformatie op de PDOK-rasterlaag; lijndikte bepaalt PDOK).</li>
+          <li>Fietsroutes en OV-haltes laden pas bij voldoende inzoomen — dit voorkomt trage, overvolle kaarten.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>GPS, meten &amp; route</summary>
+        <ul>
+          <li>GPS toont positie en nauwkeurigheid — vereist https of localhost, niet een lokaal bestand. Chrome, Edge en Samsung Internet blokkeren echte GPS altijd bij file://; dit is een browserbeperking. Zonder https wordt automatisch een ruwe locatie op stadsniveau via het IP-adres opgehaald (oranje stip).</li>
+          <li>Meten berekent afstanden en vanaf drie punten ook oppervlakten.</li>
+          <li>Route maakt genummerde routepunten; exporteren kan als CSV via het Meer-menu.</li>
+          <li>Esc annuleert Meten of Route, of sluit een open paneel.</li>
+          <li>Klik op coördinaten in het infokaartje op "Kopieer" om ze naar het klembord te kopiëren.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>Delen, geschiedenis &amp; resultaten</summary>
+        <ul>
+          <li>Link delen (Meer-menu) maakt van de huidige zoekopdracht een link en kopieert die naar het klembord. Wie de link opent, ziet dezelfde zoekopdracht klaarstaan.</li>
+          <li>Tot 30 zoekopdrachten worden lokaal op dit apparaat bewaard. Via Geschiedenis → "Geschiedenis wissen" verwijdert u ze allemaal.</li>
+          <li>Zoekresultaten zijn te bekijken als Lijst of Tabel via de schakelaar boven de resultaten.</li>
+          <li>Tik op het pijltje rechtsboven (of de balk bovenaan op mobiel) om het hele paneel in/uit te klappen voor meer kaartruimte.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>Let op</summary>
+        <p>Resultaten zijn afhankelijk van OpenStreetMap, Nominatim, Overpass, PDOK/Kadaster en uw internetverbinding.</p>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const streetL=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:21,attribution:'© OpenStreetMap © CARTO'});
+const satL=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,attribution:'© Esri'});
+const nlL=L.tileLayer('https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_ortho25/EPSG:3857/{z}/{x}/{y}.jpeg',{maxZoom:21,attribution:'© PDOK'});
+const kaart=L.map('map',{zoomControl:false,maxZoom:21}).setView([52.57,6.62],13);
+streetL.addTo(kaart);L.control.zoom({position:'topright'}).addTo(kaart);
+const dataLaag=L.featureGroup().addTo(kaart), routeLaag=L.featureGroup().addTo(kaart), meetLaag=L.featureGroup().addTo(kaart);
+let gpsMark=null,gpsAccuracy=null,metenAan=false,mPunten=[],mLijn=null,routeAan=false,routeRij=[],lastBounds=null;
+
+function status(txt,type='ok'){$('status').textContent=txt;$('statusDot').className='status-dot '+(type==='busy'?'busy':type==='error'?'error':'')}
+function setLayer(type){
+  [streetL,satL,nlL].forEach(l=>kaart.removeLayer(l));
+  document.querySelectorAll('.base-opt').forEach(b=>{const on=b.dataset.base===type;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on))});
+  let l=streetL;if(type==='sat')l=satL;else if(type==='nl')l=nlL;
+  l.addTo(kaart);
+  if(labelsLayer&&kaart.hasLayer(labelsLayer))labelsLayer.bringToFront();
+}
+document.querySelectorAll('.base-opt').forEach(b=>b.onclick=()=>setLayer(b.dataset.base));
+
+function setLayersPanel(open){
+  $('layersPanel').hidden=!open;
+  $('bLayersToggle').classList.toggle('active',open);
+  $('bLayersToggle').setAttribute('aria-expanded',String(open));
+}
+$('bLayersToggle').onclick=()=>setLayersPanel($('layersPanel').hidden);
+document.addEventListener('click',e=>{if(!$('layersPanel').hidden&&!e.target.closest('.layers-widget'))setLayersPanel(false)});
+
+function layersHint(msg){$('layersHint').textContent=msg||''}
+
+let labelsLayer=null,kadasterLayer=null;
+function ensureLabelsLayer(){if(!labelsLayer)labelsLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png',{maxZoom:21,attribution:'© OpenStreetMap © CARTO'});return labelsLayer}
+function ensureKadasterLayer(){if(!kadasterLayer)kadasterLayer=L.tileLayer.wms('https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0',{layers:'KadastraleGrens',format:'image/png',transparent:true,version:'1.3.0',maxZoom:21,className:'kadaster-tiles',attribution:'© Kadaster'});return kadasterLayer}
+
+// Vast kleurenpalet voor de kadastrale-grenzen-laag. De PDOK-WMS levert alleen kant-en-klare
+// rasterplaatjes (geen los te stylen lijnen), dus herkleuren gebeurt via een CSS filter op de
+// tegel-container: sepia+hue-rotate zet de overwegend grijze/zwarte lijnen om naar een gekozen kleur.
+const KAD_PALETTE={
+  grijs:{filter:'none'},
+  rood:{filter:'sepia(1) saturate(9) hue-rotate(315deg) brightness(.95) contrast(1.15)'},
+  blauw:{filter:'sepia(1) saturate(9) hue-rotate(175deg) brightness(.9) contrast(1.15)'},
+  groen:{filter:'sepia(1) saturate(9) hue-rotate(70deg) brightness(.85) contrast(1.15)'},
+  oranje:{filter:'sepia(1) saturate(9) hue-rotate(340deg) brightness(1.05) contrast(1.15)'},
+  paars:{filter:'sepia(1) saturate(9) hue-rotate(230deg) brightness(.95) contrast(1.15)'}
+};
+const KAD_COLOR_KEY='geoAnalistKadKleurV1';
+function applyKadColor(key){
+  const p=KAD_PALETTE[key]||KAD_PALETTE.grijs;
+  document.documentElement.style.setProperty('--kad-filter',p.filter);
+  document.querySelectorAll('.kad-swatch').forEach(b=>{const on=b.dataset.kad===key;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on))});
+  try{localStorage.setItem(KAD_COLOR_KEY,key)}catch(e){}
+}
+document.querySelectorAll('.kad-swatch').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();applyKadColor(b.dataset.kad)}));
+(function initKadColor(){let saved='grijs';try{saved=localStorage.getItem(KAD_COLOR_KEY)||'grijs'}catch(e){}applyKadColor(saved)})();
+
+function updateLayersBadge(){
+  const n=['ovLabels','ovHuisnummers','ovKadaster','ovFiets','ovOV'].filter(id=>$(id).checked).length;
+  const badge=$('layersBadge');
+  badge.hidden=n===0;badge.textContent=n;
+}
+// Hele overlay-rij klikbaar maken (niet alleen de schakelaar zelf) — prettiger op mobiel.
+document.querySelectorAll('.overlay-row').forEach(row=>{
+  row.addEventListener('click',e=>{
+    if(e.target.closest('.switch'))return;
+    const input=row.querySelector('input[type="checkbox"]');
+    if(input){input.checked=!input.checked;input.dispatchEvent(new Event('change'))}
+  });
+});
+
+$('ovLabels').onchange=e=>{e.target.checked?ensureLabelsLayer().addTo(kaart):kaart.removeLayer(labelsLayer);updateLayersBadge()};
+$('ovKadaster').onchange=e=>{
+  $('kadColorRow').hidden=!e.target.checked;
+  e.target.checked?ensureKadasterLayer().addTo(kaart):kaart.removeLayer(kadasterLayer);
+  updateLayersBadge();
+};
+
+const fietsLaag=L.featureGroup(),ovLaag=L.featureGroup(),huisLaag=L.featureGroup();
+let fietsAan=false,ovAan=false,huisAan=false,fietsDebounce=null,ovDebounce=null,huisDebounce=null,fietsGen=0,ovGen=0,huisGen=0;
+async function fetchOverlay(kind){
+  const z=kaart.getZoom();
+  const naam=kind==='fiets'?'Fietsroutes':kind==='ov'?'OV-haltes':'Huisnummers';
+  if(kind==='fiets'&&z<14){const m='Zoom verder in om fietsroutes te laden (vanaf ca. straatniveau, huidige zoom '+z+').';layersHint(m);status(m);fietsLaag.clearLayers();return}
+  if(kind==='ov'&&z<13){const m='Zoom verder in om OV-haltes te laden (huidige zoom '+z+').';layersHint(m);status(m);ovLaag.clearLayers();return}
+  if(kind==='huis'&&z<15){const m='Zoom verder in om huisnummers te laden (huidige zoom '+z+', nodig: 15+).';layersHint(m);status(m);huisLaag.clearLayers();return}
+  const b=kaart.getBounds(),bbox=b.getSouth()+','+b.getWest()+','+b.getNorth()+','+b.getEast();
+  const myGen=kind==='fiets'?++fietsGen:kind==='ov'?++ovGen:++huisGen;
+  try{
+    layersHint(naam+' laden…');status(naam+' laden…','busy');
+    if(kind==='fiets'){
+      const q='[out:json][timeout:25];(way["highway"="cycleway"]('+bbox+');way["cycleway"~"^(lane|track|opposite_track|share_busway)$"]('+bbox+'););out geom;';
+      const data=await overpass(q);
+      if(myGen!==fietsGen||!fietsAan)return; // inmiddels vervangen door een nieuwere aanvraag, of uitgeschakeld
+      fietsLaag.clearLayers();
+      (data.elements||[]).slice(0,400).forEach(el=>{if(!el.geometry)return;L.polyline(el.geometry.map(p=>[p.lat,p.lon]),{color:'#188038',weight:4,opacity:.9}).addTo(fietsLaag)});
+      const n=fietsLaag.getLayers().length;
+      const m=n?n+' fietspadsegmenten in beeld.':'Geen fietspaden met OSM-tag highway=cycleway/cycleway=lane|track in dit gebied.';
+      layersHint(m);status(m);
+    }else if(kind==='ov'){
+      const q='[out:json][timeout:25];(node["highway"="bus_stop"]('+bbox+');node["public_transport"="platform"]('+bbox+');node["railway"~"^(tram_stop|station|halt)$"]('+bbox+'););out;';
+      const data=await overpass(q);
+      if(myGen!==ovGen||!ovAan)return;
+      ovLaag.clearLayers();
+      (data.elements||[]).slice(0,300).forEach(el=>{if(el.lat==null||el.lon==null)return;L.circleMarker([el.lat,el.lon],{radius:6,color:'#6331c9',fillColor:'#a78bfa',fillOpacity:.9,weight:2}).bindPopup('<b>'+esc(el.tags?.name||'Halte')+'</b>').addTo(ovLaag)});
+      const n=ovLaag.getLayers().length;
+      const m=n?n+' OV-haltes in beeld.':'Geen OV-haltes gevonden in dit gebied.';
+      layersHint(m);status(m);
+    }else{
+      // OSM-huisnummers (addr:housenumber) i.p.v. de BAG-WMS: die laatste toont alleen puntjes, geen tekst.
+      const q='[out:json][timeout:25];(node["addr:housenumber"]('+bbox+');way["addr:housenumber"]('+bbox+'););out center tags 1000;';
+      const data=await overpass(q);
+      if(myGen!==huisGen||!huisAan)return;
+      huisLaag.clearLayers();
+      const seenHuis=new Set();
+      (data.elements||[]).forEach(el=>{
+        const lat=el.lat??el.center?.lat,lon=el.lon??el.center?.lon;if(lat==null||lon==null)return;
+        const nr=el.tags?.['addr:housenumber'];if(!nr)return;
+        const key=lat.toFixed(6)+','+lon.toFixed(6)+','+nr;if(seenHuis.has(key))return;seenHuis.add(key);
+        const icon=L.divIcon({html:'<div style="background:#fff;color:#202124;border:1px solid #cfd4da;border-radius:5px;padding:1px 4px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.25)">'+esc(nr)+'</div>',className:'',iconSize:null,iconAnchor:[8,8]});
+        L.marker([lat,lon],{icon,interactive:false}).addTo(huisLaag);
+      });
+      const n=huisLaag.getLayers().length;
+      const m=n?n+' huisnummers in beeld (OpenStreetMap).':'Geen OSM-huisnummers (addr:housenumber) gevonden in dit gebied.';
+      layersHint(m);status(m);
+    }
+  }catch(err){
+    if(!(kind==='fiets'?myGen===fietsGen:kind==='ov'?myGen===ovGen:myGen===huisGen))return;
+    const m=naam+' laden mislukt: '+(err.message||String(err));
+    layersHint(naam+' laden mislukt — probeer opnieuw of zoom in.');status(m,'error');
+    $('debug-log').style.display='block';$('debug-log').textContent=m;
+  }
+}
+function scheduleOverlayFetch(kind){
+  if(kind==='fiets'){clearTimeout(fietsDebounce);fietsDebounce=setTimeout(()=>fetchOverlay('fiets'),700)}
+  else if(kind==='ov'){clearTimeout(ovDebounce);ovDebounce=setTimeout(()=>fetchOverlay('ov'),700)}
+  else{clearTimeout(huisDebounce);huisDebounce=setTimeout(()=>fetchOverlay('huis'),450)}
+}
+$('ovFiets').onchange=e=>{fietsAan=e.target.checked;if(fietsAan){fietsLaag.addTo(kaart);fetchOverlay('fiets')}else{kaart.removeLayer(fietsLaag);fietsLaag.clearLayers();layersHint('')}updateLayersBadge()};
+$('ovOV').onchange=e=>{ovAan=e.target.checked;if(ovAan){ovLaag.addTo(kaart);fetchOverlay('ov')}else{kaart.removeLayer(ovLaag);ovLaag.clearLayers();layersHint('')}updateLayersBadge()};
+$('ovHuisnummers').onchange=e=>{huisAan=e.target.checked;if(huisAan){huisLaag.addTo(kaart);fetchOverlay('huis')}else{kaart.removeLayer(huisLaag);huisLaag.clearLayers();layersHint('')}updateLayersBadge()};
+kaart.on('moveend',()=>{if(fietsAan)scheduleOverlayFetch('fiets');if(ovAan)scheduleOverlayFetch('ov');if(huisAan)scheduleOverlayFetch('huis')});
+updateLayersBadge();
+
+function distanceText(d){return d>=1000?(d/1000).toFixed(2)+' km':Math.round(d)+' m'}
+function totalDistance(points){let d=0;for(let i=1;i<points.length;i++)d+=points[i-1].distanceTo(points[i]);return d}
+function polygonArea(points){
+  if(points.length<3)return 0;
+  const R=6378137, lat0=points.reduce((s,p)=>s+p.lat,0)/points.length*Math.PI/180;
+  const xy=points.map(p=>({x:R*p.lng*Math.PI/180*Math.cos(lat0),y:R*p.lat*Math.PI/180}));
+  let a=0;for(let i=0;i<xy.length;i++){const j=(i+1)%xy.length;a+=xy[i].x*xy[j].y-xy[j].x*xy[i].y}
+  return Math.abs(a/2);
+}
+function areaText(a){return a>=10000?(a/10000).toFixed(2)+' ha':Math.round(a)+' m²'}
+function renderMeasureSummary(){
+  const box=$('measure-card'),sum=$('measure-summary');
+  if(!mPunten.length){box.style.display='none';return}
+  const d=totalDistance(mPunten),a=polygonArea(mPunten);
+  sum.innerHTML='<div class="measure-stat"><b>'+esc(distanceText(d))+'</b><span>Totale afstand</span></div>'+
+    '<div class="measure-stat"><b>'+esc(mPunten.length>=3?areaText(a):'—')+'</b><span>Oppervlakte (vanaf 3 punten)</span></div>';
+  box.style.display='block';
+}
+function resetMeasure(){mPunten=[];meetLaag.clearLayers();if(mLijn){kaart.removeLayer(mLijn);mLijn=null}renderMeasureSummary()}
+function stopMeasure(){metenAan=false;$('bMeten').textContent='📏 Meten';$('bMeten').classList.remove('aan');resetMeasure()}
+$('bMeten').onclick=function(){if(routeAan)stopRoute();metenAan=!metenAan;resetMeasure();this.textContent=metenAan?'📍 Klik…':'📏 Meten';this.classList.toggle('aan',metenAan);status(metenAan?'Klik op de kaart om een meetpunt toe te voegen.':'Meting gestopt.')};
+
+kaart.on('click',e=>{if(metenAan){mPunten.push(e.latlng);L.circleMarker(e.latlng,{radius:5,color:'#d93025',fillOpacity:.9}).addTo(meetLaag);if(mPunten.length>1){if(mLijn)kaart.removeLayer(mLijn);mLijn=L.polyline(mPunten,{color:'#d93025',weight:3,dashArray:'6,5'}).addTo(kaart);L.popup({closeButton:false,autoClose:false,closeOnClick:false}).setLatLng(e.latlng).setContent('<b>'+distanceText(totalDistance(mPunten))+'</b>').openOn(kaart)}renderMeasureSummary();status('Meting: '+distanceText(totalDistance(mPunten))+(mPunten.length>=3?' · oppervlakte '+areaText(polygonArea(mPunten)):''))}else if(routeAan){voegRoutePunt(e.latlng,'Handmatig punt '+(routeRij.length+1))}});
+
+function stopRoute(){routeAan=false;routeRij=[];routeLaag.clearLayers();$('bRoute').textContent='🗺️ Route';$('bRoute').classList.remove('aan')}
+function toggleRoute(){if(routeAan){stopRoute();status('Route gestopt.')}else{stopMeasure();routeAan=true;$('bRoute').textContent='⏹️ Stop';$('bRoute').classList.add('aan');status('Route-modus: klik op de kaart of een zoekresultaat.')} }
+$('bRoute').onclick=toggleRoute;
+
+function voegRoutePunt(ll,naam){const nr=routeRij.length+1;routeRij.push({ll,naam});const icon=L.divIcon({html:'<div style="background:#7c3aed;color:#fff;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.3)">'+nr+'</div>',className:'',iconSize:[26,26],iconAnchor:[13,13]});L.marker(ll,{icon}).addTo(routeLaag).bindPopup(nr+'. '+esc(naam));if(nr>1){const prev=routeRij[nr-2].ll;L.polyline([prev,ll],{color:'#7c3aed',weight:3,dashArray:'7,5'}).addTo(routeLaag)}status(nr+' routepunten — totaal: '+distanceText(totalDistance(routeRij.map(x=>x.ll))))}
+
+async function ipLocatieFallback(btn){
+  status('Geen echte GPS mogelijk vanaf een lokaal bestand (file://) — Chrome, Edge en Samsung Internet blokkeren dat altijd. Ruwe locatie via IP-adres wordt opgehaald…','busy');
+  try{
+    const ctrl=new AbortController(),t=setTimeout(()=>ctrl.abort(),8000);
+    const res=await fetch('https://ipwho.is/',{signal:ctrl.signal});
+    clearTimeout(t);
+    const j=await res.json();
+    if(!j.success||j.latitude==null||j.longitude==null)throw new Error(j.message||'Geen locatiegegevens ontvangen.');
+    const ll=[j.latitude,j.longitude];kaart.setView(ll,11);
+    if(gpsMark)kaart.removeLayer(gpsMark);if(gpsAccuracy)kaart.removeLayer(gpsAccuracy);
+    gpsMark=L.circleMarker(ll,{radius:10,color:'#e37400',fillColor:'#f9ab00',fillOpacity:.95,weight:3}).addTo(kaart).bindPopup('📍 Geschatte locatie (IP-adres)<br>'+esc(j.city||'')+(j.city&&j.region?', ':'')+esc(j.region||'')+'<br><span style="font-size:10.5px;color:#80868b">Geen echte GPS — alleen stadsniveau</span>').openPopup();
+    gpsAccuracy=L.circle(ll,{radius:15000,color:'#f9ab00',fillOpacity:.05,weight:1,dashArray:'4,4'}).addTo(kaart);
+    status('Geschatte locatie via IP: '+(j.city||j.region||'onbekende plaats')+'. Voor echte GPS: open dit bestand via https of localhost (bijv. met een lokale webserver), niet als lokaal bestand.');
+  }catch(err){
+    status('GPS werkt niet vanaf een lokaal bestand (file://), en de IP-locatie-fallback is mislukt. Open het bestand via een lokale webserver of zet het online (https) — dan werkt GPS wel.','error');
+    $('debug-log').style.display='block';$('debug-log').textContent=err.message||String(err);
+  }finally{btn.disabled=false}
+}
+
+$('bGPS').onclick=function(){
+  if(!navigator.geolocation){status('GPS is niet beschikbaar in deze browser.','error');return}
+  if(!window.isSecureContext){
+    this.disabled=true;
+    ipLocatieFallback(this);
+    return;
+  }
+  status('GPS-locatie bepalen…','busy');this.disabled=true;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const ll=[pos.coords.latitude,pos.coords.longitude];kaart.setView(ll,17);
+    if(gpsMark)kaart.removeLayer(gpsMark);if(gpsAccuracy)kaart.removeLayer(gpsAccuracy);
+    gpsMark=L.circleMarker(ll,{radius:10,color:'#188038',fillColor:'#34a853',fillOpacity:.95,weight:3}).addTo(kaart).bindPopup('📍 Jouw locatie<br>±'+Math.round(pos.coords.accuracy)+' m').openPopup();
+    gpsAccuracy=L.circle(ll,{radius:pos.coords.accuracy,color:'#34a853',fillOpacity:.06,weight:1,dashArray:'4,4'}).addTo(kaart);
+    status('GPS gevonden (±'+Math.round(pos.coords.accuracy)+' m).');this.disabled=false
+  },err=>{
+    const msgs={1:'GPS-toestemming geweigerd. Controleer het locatie-icoon in de adresbalk en de locatie-instellingen van je systeem.',2:'Positie kon niet worden bepaald. Controleer of locatievoorzieningen op dit apparaat aanstaan.',3:'GPS-aanvraag duurde te lang. Probeer het opnieuw, bij voorkeur buiten of bij een raam.'};
+    status(msgs[err.code]||'GPS kon niet worden bepaald.','error');this.disabled=false
+  },{timeout:15000,enableHighAccuracy:true,maximumAge:10000})
+};
+
+function clearAll(){clearTimeout(fietsDebounce);clearTimeout(ovDebounce);clearTimeout(huisDebounce);dataLaag.clearLayers();routeLaag.clearLayers();meetLaag.clearLayers();if(mLijn){kaart.removeLayer(mLijn);mLijn=null}if(gpsMark){kaart.removeLayer(gpsMark);gpsMark=null}if(gpsAccuracy){kaart.removeLayer(gpsAccuracy);gpsAccuracy=null}stopMeasure();stopRoute();$('info-card').style.display='none';$('debug-log').style.display='none';$('results').style.display='none';$('resultsList').innerHTML='';$('resultsTableBody').innerHTML='';lastBounds=null;renderMeasureSummary();setSearchCollapsed(false);setResultsView('list');status('Kaart en resultaten gewist.')}
+
+// V11.0 — "Meer"-menu (Delen/exports/wissen) i.p.v. acht gelijkwaardige knoppen
+function setMorePanel(open){
+  $('morePanel').hidden=!open;
+  $('bMore').classList.toggle('active',open);
+  $('bMore').setAttribute('aria-expanded',String(open));
+  if(!open)disarmWis();
+}
+$('bMore').onclick=e=>{e.stopPropagation();setMorePanel($('morePanel').hidden)};
+document.addEventListener('click',e=>{if(!$('morePanel').hidden&&!e.target.closest('.more-wrap'))setMorePanel(false)});
+
+// "Alles wissen" is destructief en onomkeerbaar (route/metingen/resultaten kwijt) —
+// daarom een korte, niet-blokkerende bevestiging in de knop zelf i.p.v. een confirm()-dialoog.
+let wisArmed=false,wisArmTimer=null;
+function disarmWis(){wisArmed=false;clearTimeout(wisArmTimer);$('bWis').textContent='🗑️ Alles wissen';$('bWis').classList.remove('more-item-armed')}
+$('bWis').onclick=()=>{
+  if(!wisArmed){
+    wisArmed=true;$('bWis').textContent='⚠️ Zeker weten? Nogmaals klikken';$('bWis').classList.add('more-item-armed');
+    clearTimeout(wisArmTimer);wisArmTimer=setTimeout(disarmWis,4000);
+    return;
+  }
+  disarmWis();setMorePanel(false);clearAll();
+};
+
+function showInfo(el,naam){
+  const info=$('info-card');
+  const lat=el.lat??el.center?.lat,lon=el.lon??el.center?.lon;
+  const coordTxt=(lat!=null&&lon!=null)?lat.toFixed(6)+', '+lon.toFixed(6):'';
+  let h='<div class="card-title">'+esc(naam)+'</div>';
+  if(coordTxt)h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:11px;color:#5f6368">'+esc(coordTxt)+'</span><button id="bCopyCoord" class="mini" style="min-height:24px!important;padding:2px 7px!important;border-radius:6px;background:#eef1f4;border:1px solid var(--line);cursor:pointer;font-size:10px">Kopieer</button></div>';
+  h+='<table>';if(el.tags)Object.keys(el.tags).sort().forEach(k=>h+='<tr><td>'+esc(k)+'</td><td>'+esc(el.tags[k])+'</td></tr>');
+  info.innerHTML=h+'</table>';info.style.display='block';
+  const copyBtn=$('bCopyCoord');
+  if(copyBtn)copyBtn.onclick=async()=>{
+    try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(coordTxt);status('Coördinaten gekopieerd: '+coordTxt)}else{prompt('Coördinaten:',coordTxt)}}catch(e){prompt('Coördinaten:',coordTxt)}
+  };
+}
+$('bFit').onclick=()=>{if(lastBounds&&lastBounds.isValid())kaart.fitBounds(lastBounds,{padding:[30,30]})};
+
+async function fetchJSON(url,options,timeout=90000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{...options,signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(t)}}
+function regexTerm(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+async function overpass(q){
+  const servers=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+  // Alle spiegelservers tegelijk aanroepen (i.p.v. na elkaar) — het eerste antwoord wint, dus een trage/uitvallende server vertraagt niet meer de hele zoekopdracht.
+  try{
+    return await Promise.any(servers.map(s=>fetchJSON(s,{method:'POST',body:q},85000)));
+  }catch(agg){
+    const last=agg&&agg.errors&&agg.errors[agg.errors.length-1];
+    throw last||new Error('Geen Overpass-server beschikbaar.');
+  }
+}
+
+const HISTORY_KEY='geoAnalistSearchHistoryV2';
+  let searchMode='simple', currentSearchCenter=null, searchGen=0;
+
+  function setMode(mode){
+    searchMode=mode;
+    $('modeSimple').classList.toggle('active',mode==='simple');
+    $('modePro').classList.toggle('active',mode==='pro');
+    $('proFields').hidden=mode!=='pro';
+    $('basicHint').hidden=mode==='pro';
+    status(mode==='pro'?'Pro-modus: gericht zoeken met OSM-filters.':'Basis-modus: eenvoudig zoeken zonder OSM-kennis.');
+  }
+  $('modeSimple').onclick=()=>setMode('simple');
+  $('modePro').onclick=()=>setMode('pro');
+
+  function setSearchCollapsed(collapsed){
+    $('searchBody').classList.toggle('collapsed',collapsed);
+    $('bToggleSearch').classList.toggle('collapsed',collapsed);
+    $('bToggleSearch').setAttribute('aria-expanded',String(!collapsed));
+    $('bToggleSearch').title=collapsed?'Zoekvelden uitklappen':'Zoekvelden inklappen';
+  }
+  $('bToggleSearch').onclick=()=>setSearchCollapsed(!$('searchBody').classList.contains('collapsed'));
+
+  const PANEL_COLLAPSED_KEY='geoAnalistPanelCollapsed';
+  function setPanelCollapsed(collapsed){
+    $('panelBody').classList.toggle('collapsed',collapsed);
+    $('panel').classList.toggle('panel-collapsed',collapsed);
+    $('bTogglePanel').classList.toggle('collapsed',collapsed);
+    $('bTogglePanel').setAttribute('aria-expanded',String(!collapsed));
+    $('bTogglePanel').title=collapsed?'Paneel uitklappen':'Paneel inklappen';
+    try{localStorage.setItem(PANEL_COLLAPSED_KEY,collapsed?'1':'0')}catch(e){}
+  }
+  $('bTogglePanel').onclick=()=>setPanelCollapsed(!$('panelBody').classList.contains('collapsed'));
+  $('dragHandle').onclick=()=>setPanelCollapsed(!$('panelBody').classList.contains('collapsed'));
+  try{if(localStorage.getItem(PANEL_COLLAPSED_KEY)==='1')setPanelCollapsed(true)}catch(e){}
+
+  function loadHistory(){
+    try{return JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch(e){return []}
+  }
+  function saveHistory(item){
+    let h=loadHistory().filter(x=>!(x.location===item.location&&x.term===item.term&&x.tag===item.tag&&x.type===item.type));
+    h.unshift({...item,at:new Date().toLocaleString('nl-NL',{dateStyle:'short',timeStyle:'short'})});
+    try{localStorage.setItem(HISTORY_KEY,JSON.stringify(h.slice(0,30)))}catch(e){}
+  }
+  function renderHistory(){
+    const panel=$('historyPanel'),h=loadHistory();
+    if(!h.length){
+      panel.innerHTML='<div class="history-item"><div class="history-main"><b>Nog geen zoekopdrachten</b><span>Geschiedenis wordt alleen op dit apparaat bewaard.</span></div></div>';
+    }else{
+      panel.innerHTML=h.map((x,i)=>'<div class="history-item" data-i="'+i+'"><div class="history-main"><b>'+esc(x.location)+' · '+esc(x.term||x.tag)+'</b><span>'+esc(x.at)+(x.tag?' · '+esc(x.tag):'')+(x.type?' · '+esc(x.type):'')+'</span></div><span class="history-use">Gebruiken</span></div>').join('')+
+        '<div class="history-item" id="bHistoryClear"><div class="history-main"><b style="color:var(--danger)">Geschiedenis wissen</b></div></div>';
+      panel.querySelectorAll('.history-item[data-i]').forEach(el=>el.onclick=()=>{
+        const x=h[+el.dataset.i];
+        $('locationInput').value=x.location;$('termInput').value=x.term||'';$('tagField').value=x.tag||'';
+        $('typeField').value=x.type||'';$('limitField').value=x.limit||'100';
+        setMode(x.tag||x.type||String(x.limit||'100')!=='100'?'pro':'simple');panel.hidden=true;
+      });
+      const clearBtn=$('bHistoryClear');
+      if(clearBtn)clearBtn.onclick=()=>{try{localStorage.removeItem(HISTORY_KEY)}catch(e){}panel.hidden=true;status('Zoekgeschiedenis gewist.')};
+    }
+    panel.hidden=!panel.hidden;
+  }
+  $('bHistory').onclick=renderHistory;
+  $('bExample').onclick=()=>{
+    $('locationInput').value='Hardenberg';$('termInput').value='gemeentehuis';
+    $('tagField').value='';$('typeField').value='';$('limitField').value='100';
+    setMode('simple');status('Voorbeeld ingevuld — klik op Zoeken.');
+  };
+
+  function parseTag(tag){
+    if(!tag)return null;
+    const m=tag.match(/^\s*([A-Za-z0-9_:\-]+)\s*=\s*(.+?)\s*$/);
+    return m?{key:m[1],value:m[2]}:null;
+  }
+  const SEARCH_KEYS=['name','official_name','alt_name','amenity','shop','tourism','leisure','building','historic','man_made'];
+  function buildSearchQuery(term,tag,bb,type,limit){
+    const parsed=parseTag(tag),base=type||'nwr';
+    const max=Math.min(parseInt(limit,10)||100,500);
+    const outCap=Math.min(max*4,1200); // ruime marge boven de gekozen limiet, zodat afstandssortering nog zinvol is
+    let clause;
+    if(parsed){
+      clause=base+'["'+regexTerm(parsed.key)+'"="'+regexTerm(parsed.value)+'"]('+bb+');';
+    }else{
+      // Eén gecombineerde regex-scan over alle relevante velden i.p.v. 10 losse scans — veel minder serverwerk.
+      const t=regexTerm(term),keyPattern='^('+SEARCH_KEYS.join('|')+')$';
+      clause=base+'[~"'+keyPattern+'"~"'+t+'",i]('+bb+');';
+    }
+    // Server-side output-limiet i.p.v. alles ophalen en pas achteraf afknippen: minder dataverkeer, sneller op mobiel.
+    return '[out:json][timeout:75];('+clause+');out center tags '+outCap+';';
+  }
+
+  function objectType(el){
+    if(el.tags?.amenity)return 'amenity: '+el.tags.amenity;
+    if(el.tags?.shop)return 'shop: '+el.tags.shop;
+    if(el.tags?.tourism)return 'tourism: '+el.tags.tourism;
+    if(el.tags?.leisure)return 'leisure: '+el.tags.leisure;
+    if(el.tags?.building)return 'building: '+el.tags.building;
+    if(el.tags?.historic)return 'historic: '+el.tags.historic;
+    if(el.tags?.man_made)return 'man_made: '+el.tags.man_made;
+    return el.type||'OSM-object';
+  }
+  // V11.0 — Lijst/Tabel-schakelaar: nooit beide tegelijk tonen (bespaart ruimte in het paneel)
+  let resultsView='list';
+  function setResultsView(v){
+    resultsView=v;
+    $('resultsListWrap').hidden=v!=='list';
+    $('resultsTableWrap').hidden=v!=='table';
+    $('bViewList').classList.toggle('active',v==='list');
+    $('bViewTable').classList.toggle('active',v==='table');
+    $('bViewList').setAttribute('aria-pressed',String(v==='list'));
+    $('bViewTable').setAttribute('aria-pressed',String(v==='table'));
+  }
+  $('bViewList').onclick=()=>setResultsView('list');
+  $('bViewTable').onclick=()=>setResultsView('table');
+
+  function renderResults(items){
+    const box=$('results'),list=$('resultsList'),tbody=$('resultsTableBody');list.innerHTML='';tbody.innerHTML='';
+    const sorted=[...items].sort((a,b)=>{
+      const da=currentSearchCenter?a.ll.distanceTo(currentSearchCenter):Infinity;
+      const db=currentSearchCenter?b.ll.distanceTo(currentSearchCenter):Infinity;
+      return da-db;
+    });
+    sorted.forEach((item,i)=>{
+      const dist=currentSearchCenter?distanceText(item.ll.distanceTo(currentSearchCenter)):'';
+      const row=document.createElement('div');row.className='result-item';
+      row.innerHTML='<span class="result-num">'+(i+1)+'</span><div style="min-width:0"><div class="result-name">'+esc(item.name)+'</div><div class="result-type">'+esc(item.type)+(dist?' · '+esc(dist):'')+'</div></div>';
+      row.onclick=()=>selectResult(item);
+      list.appendChild(row);
+
+      const tr=document.createElement('tr');
+      const tags=Object.entries(item.el.tags||{}).slice(0,8).map(([k,v])=>k+'='+v).join('; ');
+      tr.innerHTML='<td>'+(i+1)+'</td><td class="name">'+esc(item.name)+'</td><td>'+esc(item.type)+'</td><td>'+item.ll.lat.toFixed(5)+', '+item.ll.lng.toFixed(5)+'</td><td>'+esc(dist||'—')+'</td><td>'+esc(tags||'—')+'</td>';
+      tr.onclick=()=>selectResult(item);tbody.appendChild(tr);
+    });
+    box.style.display=items.length?'block':'none';
+    $('results').querySelector('.results-title').textContent='Zoekresultaten · '+items.length;
+    setResultsView(resultsView);
+    // V11.0 — bij resultaten de zoekvelden automatisch inklappen: meer ruimte voor kaart/resultaten,
+    // de velden blijven ingevuld en zijn met het pijltje weer één klik terug.
+    if(items.length)setSearchCollapsed(true);
+}
+function selectResult(item){
+  kaart.setView(item.ll,Math.max(kaart.getZoom(),16));item.marker.openPopup();
+  if(routeAan)voegRoutePunt(item.ll,item.name);else showInfo(item.el,item.name);
+}
+  const GEOCODE_CACHE_KEY='geoAnalistGeocodeCacheV1';
+  function loadGeocodeCache(){try{return JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY)||'{}')}catch(e){return {}}}
+  function saveGeocodeCache(cache){try{localStorage.setItem(GEOCODE_CACHE_KEY,JSON.stringify(cache))}catch(e){}}
+  async function geocodeLocation(query){
+    const key=query.trim().toLowerCase();
+    const cache=loadGeocodeCache();
+    if(cache[key])return cache[key]; // eerder opgezocht gebied: geen nieuwe Nominatim-aanvraag nodig
+    const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=nl&q='+encodeURIComponent(query);
+    const geo=await fetchJSON(url,{},15000);
+    if(!geo.length)throw new Error('Zoekgebied "'+query+'" is niet gevonden. Probeer een plaatsnaam, adres of postcode.');
+    cache[key]=geo[0];
+    const keys=Object.keys(cache);
+    if(keys.length>50)delete cache[keys[0]]; // cache klein houden
+    saveGeocodeCache(cache);
+    return geo[0];
+  }
+
+  $('bZoek').onclick=async function(){
+    const location=$('locationInput').value.trim(),term=$('termInput').value.trim(),tag=$('tagField').value.trim();
+    const type=$('typeField').value,limit=$('limitField').value,parsed=parseTag(tag);
+    if(!location){status('Vul eerst het zoekgebied in, bijvoorbeeld "Hardenberg".','error');$('locationInput').focus();return}
+    if(!term&&!parsed){status('Vul in waar je naar zoekt, bijvoorbeeld "gemeentehuis", of gebruik een OSM-tag.','error');$('termInput').focus();return}
+    if(tag&&!parsed){status('Ongeldige OSM-tag. Gebruik bijvoorbeeld amenity=school.','error');$('tagField').focus();return}
+    saveHistory({location,term,tag,type,limit});
+    const myGen=++searchGen;
+    $('bZoek').disabled=true;$('info-card').style.display='none';$('debug-log').style.display='none';$('results').style.display='none';dataLaag.clearLayers();currentSearchCenter=null;
+    status('Zoekgebied bepalen…','busy');
+    try{
+      const geo=await geocodeLocation(location);
+      if(myGen!==searchGen)return; // er is intussen een nieuwere zoekopdracht gestart
+      const b=geo.boundingbox,s=+b[0],n=+b[1],w=+b[2],e=+b[3];
+      currentSearchCenter=L.latLng((s+n)/2,(w+e)/2);
+      lastBounds=L.latLngBounds([[s,w],[n,e]]);kaart.fitBounds(lastBounds,{padding:[35,35]});
+      status('OpenStreetMap-objecten zoeken…','busy');
+      const data=await overpass(buildSearchQuery(term,tag,s+','+w+','+n+','+e,type,limit));
+      if(myGen!==searchGen)return; // verouderd antwoord, negeren
+      if(!data.elements?.length){status('Geen objecten gevonden. Probeer een bredere zoekterm of een andere locatie.');return}
+      updateShareUrl({location,term,tag,type,limit});
+      const seen=new Set(),items=[];
+      data.elements.forEach(el=>{
+        const lat=el.lat??el.center?.lat,lon=el.lon??el.center?.lon;if(lat==null||lon==null)return;
+        const key=el.type+'/'+el.id;if(seen.has(key))return;seen.add(key);
+        const name=el.tags?.name||'(naamloos)',ll=L.latLng(lat,lon);
+        const marker=L.circleMarker(ll,{radius:9,color:'#1a73e8',fillColor:'#1a73e8',fillOpacity:.72,weight:2}).addTo(dataLaag);
+        marker.bindPopup('<b>'+esc(name)+'</b><br><span style="font-size:11px">'+esc(objectType(el))+'</span>');
+        marker.on('click',ev=>{L.DomEvent.stopPropagation(ev);if(routeAan)voegRoutePunt(ll,name);else showInfo(el,name)});
+        items.push({el,name,ll,marker,type:objectType(el)});
+      });
+      // Sorteer op afstand tot het zoekgebiedcentrum vóórdat de limiet wordt toegepast,
+      // zodat bij meer treffers dan de limiet altijd de dichtstbijzijnde objecten overblijven.
+      const max=parseInt(limit,10)||100;
+      const sortedAll=[...items].sort((a,b)=>{
+        const da=currentSearchCenter?a.ll.distanceTo(currentSearchCenter):Infinity;
+        const db=currentSearchCenter?b.ll.distanceTo(currentSearchCenter):Infinity;
+        return da-db;
+      });
+      const limited=sortedAll.slice(0,max);
+      renderResults(limited);
+      if(limited.length){
+        const bnd=L.latLngBounds(limited.map(x=>x.ll));lastBounds=bnd;
+        if(limited.length>1)kaart.fitBounds(bnd,{padding:[45,45],maxZoom:17});
+      }
+      status('✓ '+limited.length+' objecten gevonden. Resultaten zijn op afstand gesorteerd.');
+    }catch(err){
+      if(myGen!==searchGen)return;
+      const msg=err.name==='AbortError'?'De aanvraag duurde te lang. Verklein het zoekgebied of probeer opnieuw.':'Zoeken mislukt.';
+      status(msg,'error');$('debug-log').style.display='block';$('debug-log').textContent=err.message||String(err);
+    }finally{if(myGen===searchGen)$('bZoek').disabled=false}
+  };
+
+
+  function exportRoute(){
+    if(routeRij.length<2){status('Voeg eerst minimaal twee routepunten toe.','error');return}
+    const lines=['Routepunten Geo-Analist Pro V11.0','Naam;Latitude;Longitude'];
+    routeRij.forEach((p,i)=>lines.push((i+1)+';'+p.ll.lat.toFixed(6)+';'+p.ll.lng.toFixed(6)));
+    lines.push('Totale afstand;'+distanceText(totalDistance(routeRij.map(x=>x.ll))));
+    const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='route_geo-analist.csv';a.click();URL.revokeObjectURL(a.href);
+    status('Route geëxporteerd als CSV.');
+  }
+  function exportMap(){
+    status('Kaartafbeelding exporteren…','busy');
+    // Werkt zonder extra bibliotheek: exporteert de zichtbare kaart als SVG-snapshot met titel en extent.
+    const b=kaart.getBounds();
+    const text='Geo-Analist Pro V11.0\nKaartcentrum: '+kaart.getCenter().lat.toFixed(6)+', '+kaart.getCenter().lng.toFixed(6)+'\nZoom: '+kaart.getZoom()+'\nGebied: '+b.toBBoxString();
+    const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kaartinformatie.txt';a.click();URL.revokeObjectURL(a.href);
+    status('Kaartinformatie geëxporteerd. Voor een echte afbeelding kan in een volgende iteratie html2canvas worden toegevoegd.');
+  }
+  $('bRouteExport').onclick=exportRoute;
+  $('bMapExport').onclick=exportMap;
+
+  ['locationInput','termInput','tagField','typeField','limitField'].forEach(id=>$(id).addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('bZoek').click()}
+  }));
+
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape')return;
+    if(!$('helpModal').hidden){setHelp(false);return}
+    if(!$('morePanel').hidden){setMorePanel(false);return}
+    if(metenAan){stopMeasure();status('Meting geannuleerd (Esc).');return}
+    if(routeAan){stopRoute();status('Route geannuleerd (Esc).');return}
+    if(!$('layersPanel').hidden)setLayersPanel(false);
+  });
+
+  function updateShareUrl(q){
+    try{
+      const p=new URLSearchParams();
+      p.set('loc',q.location);if(q.term)p.set('term',q.term);if(q.tag)p.set('tag',q.tag);
+      if(q.type)p.set('type',q.type);if(q.limit&&q.limit!=='100')p.set('limit',q.limit);
+      history.replaceState(null,'','#'+p.toString());
+    }catch(e){}
+  }
+  function readShareUrl(){
+    try{
+      if(!location.hash)return null;
+      const p=new URLSearchParams(location.hash.slice(1));
+      if(!p.get('loc'))return null;
+      return {location:p.get('loc'),term:p.get('term')||'',tag:p.get('tag')||'',type:p.get('type')||'',limit:p.get('limit')||'100'};
+    }catch(e){return null}
+  }
+  $('bShare').onclick=async function(){
+    const location_=$('locationInput').value.trim();
+    if(!location_){status('Vul eerst een zoekopdracht in om een link te delen.','error');return}
+    updateShareUrl({location:location_,term:$('termInput').value.trim(),tag:$('tagField').value.trim(),type:$('typeField').value,limit:$('limitField').value});
+    const url=window.location.href;
+    try{
+      if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(url);status('Deelbare link gekopieerd naar klembord.')}
+      else{prompt('Kopieer deze link om te delen:',url);status('Deelbare link klaar om te kopiëren.')}
+    }catch(e){prompt('Kopieer deze link om te delen:',url)}
+  };
+  const sharedSearch=readShareUrl();
+  if(sharedSearch){
+    $('locationInput').value=sharedSearch.location;$('termInput').value=sharedSearch.term;
+    $('tagField').value=sharedSearch.tag;$('typeField').value=sharedSearch.type;$('limitField').value=sharedSearch.limit;
+    if(sharedSearch.tag||sharedSearch.type||sharedSearch.limit!=='100')setMode('pro');
+    status('Gedeelde zoekopdracht geladen — klik op Zoeken.');
+  }
+  function setHelp(open){
+    $('helpModal').hidden=!open;
+    $('bHelp').setAttribute('aria-expanded',String(open));
+  }
+  $('bHelp').onclick=()=>setHelp(true);
+  $('bHelpClose').onclick=()=>setHelp(false);
+  $('helpBackdrop').onclick=()=>setHelp(false);
+
+})();
+</script>
+</body>
+</html>
